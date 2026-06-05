@@ -26,7 +26,7 @@ export default function App() {
           <Route path="datasources" element={<DataSources />} />
           <Route path="crawlers" element={<Crawlers />} />
           <Route path="quality" element={<DataQuality />} />
-          <Route path="api" element={<DataAPI />} />
+          <Route path="data-service" element={<DataAPI />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     DIRECTUS_URL: str = "http://localhost:8055"
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:5000", "http://localhost:5173"]
+    CORS_ORIGINS: list[str] = ["http://localhost:5000", "http://localhost:5173", "http://localhost:3000"]
 
-    model_config = {"env_file": "../../.env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": "../../.env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()

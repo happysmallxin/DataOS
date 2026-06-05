@@ -21,7 +21,7 @@ const menuItems = [
   { key: '/datasources', icon: <DatabaseOutlined />, label: '数据源管理' },
   { key: '/crawlers', icon: <BugOutlined />, label: '网页爬取' },
   { key: '/quality', icon: <SafetyCertificateOutlined />, label: '数据质量' },
-  { key: '/api', icon: <ApiOutlined />, label: '数据服务' },
+  { key: '/data-service', icon: <ApiOutlined />, label: '数据服务' },
   { key: '/settings', icon: <SettingOutlined />, label: '平台设置' },
 ]
 

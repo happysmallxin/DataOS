@@ -3,6 +3,7 @@ import {
   DatabaseOutlined,
   BugOutlined,
   ApiOutlined,
+  SafetyCertificateOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   SyncOutlined,

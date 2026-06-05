@@ -104,15 +104,19 @@ services:
     networks:
       - dataos-net
 
-  # Elasticsearch 8 — OpenMetadata 搜索引擎
+  # OpenSearch 2.18 — OpenMetadata 搜索引擎
+  # ⚠️ Apple Silicon Docker 已知 JVM SIGILL 问题，本地开发可跳过
+  #    生产环境 (x86_64 Linux) 正常使用
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.4
+    image: opensearchproject/opensearch:2.18.0
     container_name: dataos-elasticsearch
-    restart: unless-stopped
+    platform: linux/arm64
+    restart: "no"  # 暂时不自动重启，避免 crash loop
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - plugins.security.disabled=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m -XX:UseSVE=0"
+      - "DISABLE_INSTALL_DEMO_CONFIG=true"
     ports:
       - "${ES_PORT}:9200"
       - "${ES_TRANSPORT_PORT}:9300"
@@ -126,6 +130,13 @@ services:
       start_period: 40s
     networks:
       - dataos-net
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
 
   # ZooKeeper 3.8 — DolphinScheduler 协调
   zookeeper:
@@ -141,7 +152,7 @@ services:
       - zk-data:/data
       - zk-datalog:/datalog
     healthcheck:
-      test: ["CMD", "zkServer.sh", "status"]
+      test: ["CMD", "bash", "-c", "echo ruok | nc -w 2 localhost 2181 | grep imok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -184,8 +195,6 @@ services:
     profiles: ["apps"]
     depends_on:
       mysql:
-        condition: service_healthy
-      zookeeper:
         condition: service_healthy
     environment:
       DATABASE_TYPE: mysql
@@ -303,30 +312,29 @@ services:
     networks:
       - dataos-net
 
-  # Datavines 1.0.0 — 数据质量 & 清洗规则
-  datavines:
-    image: datavines/datavines:1.0.0
-    container_name: dataos-datavines
-    restart: unless-stopped
-    profiles: ["apps"]
-    depends_on:
-      mysql:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/datavines?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: dataos
-      SPRING_DATASOURCE_PASSWORD: dataos_2025
-      SERVER_PORT: "5600"
-    ports:
-      - "${DV_PORT}:5600"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5600/actuator/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-    networks:
-      - dataos-net
+  # Datavines — 数据质量 & 清洗规则
+  # ⚠️ 无官方 Docker 镜像，需从源码构建 (mvn clean package -Prelease -DskipTests)
+  # 构建后放入 components/datavines/ 目录，取消下方注释即可启用
+  # 文档: https://datavane.github.io/datavines-website/docs/get-started/docker/build-docker-image/
+  # datavines:
+  #   build:
+  #     context: ./components/datavines
+  #     dockerfile: Dockerfile
+  #   container_name: dataos-datavines
+  #   restart: unless-stopped
+  #   profiles: ["apps"]
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   environment:
+  #     SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/datavines?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+  #     SPRING_DATASOURCE_USERNAME: dataos
+  #     SPRING_DATASOURCE_PASSWORD: dataos_2025
+  #     SERVER_PORT: "5600"
+  #   ports:
+  #     - "${DV_PORT}:5600"
+  #   networks:
+  #     - dataos-net
 
   # Directus 11 — 数据 API 服务化 (REST + GraphQL 自动生成)
   directus:
@@ -383,6 +391,7 @@ services:
 
   # DataOS Platform Backend — FastAPI
   platform-backend:
+    platform: linux/arm64
     build:
       context: ./platform/backend
       dockerfile: Dockerfile

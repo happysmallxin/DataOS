@@ -25,7 +25,7 @@ help:
 	@echo "    Directus:           http://localhost:8055/admin"
 	@echo "    MinIO Console:      http://localhost:9001"
 	@echo "    DataOS Platform:    http://localhost:5000"
-	@echo "    Platform API Docs:  http://localhost:8000/docs"
+	@echo "    Platform API Docs:  http://localhost:8001/docs"
 
 # ---- 启动命令 ----
 
@@ -49,7 +49,7 @@ platform:
 	@sleep 5
 	@echo "✅ 平台层已启动"
 	@echo "  前端: http://localhost:5000"
-	@echo "  API:  http://localhost:8000/docs"
+	@echo "  API:  http://localhost:8001/docs"
 
 all:
 	@echo "🚀 启动全部 DataOS 服务..."
@@ -87,7 +87,7 @@ clean:
 # ---- 开发 ----
 
 dev-backend:
-	cd platform/backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
+	cd platform/backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8001
 
 dev-frontend:
 	cd platform/frontend && npm install && npm run dev
