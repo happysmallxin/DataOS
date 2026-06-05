@@ -1,0 +1,466 @@
+# ============================================================
+# DataOS — 完整 Docker Compose
+# 基础设施 + 应用服务 + 平台层
+# ============================================================
+# 启动方式:
+#   docker compose up -d                          # 仅基础设施
+#   docker compose --profile apps up -d            # 基础设施 + 应用服务
+#   docker compose --profile apps --profile platform up -d  # 全部
+#   docker compose up -d dolphinscheduler crawlab  # 启动指定服务
+# ============================================================
+
+services:
+  # ============================================================
+  # 基础设施层 (默认启动)
+  # ============================================================
+
+  # MySQL 8.0 — 共享数据库
+  mysql:
+    image: mysql:8.0.36
+    container_name: dataos-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./components/mysql/init:/docker-entrypoint-initdb.d
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+      - --max_connections=500
+      - --innodb_buffer_pool_size=512M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - dataos-net
+
+  # PostgreSQL 15 — Directus 数据库
+  postgres:
+    image: postgres:15.6-alpine
+    container_name: dataos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - dataos-net
+
+  # MongoDB 7 — Crawlab 数据库
+  mongo:
+    image: mongo:7.0.12
+    container_name: dataos-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    ports:
+      - "${MONGO_PORT}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - dataos-net
+
+  # Redis 7 — 缓存 & 消息队列
+  redis:
+    image: redis:7.2-alpine
+    container_name: dataos-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dataos-net
+
+  # Elasticsearch 8 — OpenMetadata 搜索引擎
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.4
+    container_name: dataos-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "${ES_PORT}:9200"
+      - "${ES_TRANSPORT_PORT}:9300"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q 'green\\|yellow'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - dataos-net
+
+  # ZooKeeper 3.8 — DolphinScheduler 协调
+  zookeeper:
+    image: zookeeper:3.8.4
+    container_name: dataos-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=zookeeper:2888:3888
+    ports:
+      - "${ZK_PORT}:2181"
+    volumes:
+      - zk-data:/data
+      - zk-datalog:/datalog
+    healthcheck:
+      test: ["CMD", "zkServer.sh", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - dataos-net
+
+  # MinIO — S3 兼容对象存储
+  minio:
+    image: minio/minio:latest
+    container_name: dataos-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dataos-net
+
+  # ============================================================
+  # 应用服务层 (profile: apps)
+  # ============================================================
+
+  # Apache DolphinScheduler 3.2.1 — 任务编排调度
+  dolphinscheduler:
+    image: apache/dolphinscheduler-standalone-server:3.2.1
+    container_name: dataos-dolphinscheduler
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      zookeeper:
+        condition: service_healthy
+    environment:
+      DATABASE_TYPE: mysql
+      DATABASE_DRIVER: com.mysql.cj.jdbc.Driver
+      DATABASE_HOST: mysql
+      DATABASE_PORT: "3306"
+      DATABASE_DATABASE: dolphinscheduler
+      DATABASE_USERNAME: dataos
+      DATABASE_PASSWORD: dataos_2025
+      REGISTRY_TYPE: zookeeper
+      REGISTRY_ZOOKEEPER_CONNECT_STRING: zookeeper:2181
+    ports:
+      - "${DS_API_PORT}:12345"
+    volumes:
+      - ds-logs:/opt/dolphinscheduler/logs
+      - ds-data:/opt/dolphinscheduler/local-data
+      - ./components/dolphinscheduler/resources:/opt/dolphinscheduler/resources
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12345/dolphinscheduler/actuator/health"]
+      interval: 20s
+      timeout: 15s
+      retries: 10
+      start_period: 120s
+    networks:
+      - dataos-net
+
+  # OpenMetadata 1.5.13 — 元数据管理 & 数据血缘
+  openmetadata:
+    image: docker.getcollate.io/openmetadata/server:1.5.13
+    container_name: dataos-openmetadata
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      DB_DRIVER_CLASS: com.mysql.cj.jdbc.Driver
+      DB_SCHEME: mysql
+      DB_USE_SSL: "false"
+      DB_USER: dataos
+      DB_USER_PASSWORD: dataos_2025
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: openmetadata
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_SCHEME: http
+      SERVER_PORT: "8585"
+    ports:
+      - "${OM_PORT}:8585"
+    volumes:
+      - om-data:/opt/openmetadata/data
+      - ./components/openmetadata/conf:/opt/openmetadata/conf
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8585/healthcheck"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+    networks:
+      - dataos-net
+
+  # Apache SeaTunnel 2.3.9 — 多源数据集成
+  seatunnel:
+    image: apache/seatunnel:2.3.9
+    container_name: dataos-seatunnel
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${ST_PORT}:8080"
+    volumes:
+      - ./components/seatunnel/config:/opt/seatunnel/config
+      - ./components/seatunnel/jobs:/opt/seatunnel/jobs
+    networks:
+      - dataos-net
+
+  # Crawlab — 分布式爬虫管理
+  crawlab:
+    image: crawlabteam/crawlab:latest
+    container_name: dataos-crawlab
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      CRAWLAB_MONGO_HOST: mongo
+      CRAWLAB_MONGO_PORT: "27017"
+      CRAWLAB_MONGO_DB: crawlab
+      CRAWLAB_MONGO_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      CRAWLAB_MONGO_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      CRAWLAB_MONGO_AUTHSOURCE: admin
+      CRAWLAB_REDIS_ADDRESS: redis
+      CRAWLAB_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      CRAWLAB_REDIS_DATABASE: "1"
+      CRAWLAB_SERVER_PORT: "8088"
+    ports:
+      - "${CRAWLAB_API_PORT}:8088"
+    volumes:
+      - crawlab-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - dataos-net
+
+  # Datavines 1.0.0 — 数据质量 & 清洗规则
+  datavines:
+    image: datavines/datavines:1.0.0
+    container_name: dataos-datavines
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/datavines?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: dataos
+      SPRING_DATASOURCE_PASSWORD: dataos_2025
+      SERVER_PORT: "5600"
+    ports:
+      - "${DV_PORT}:5600"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5600/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - dataos-net
+
+  # Directus 11 — 数据 API 服务化 (REST + GraphQL 自动生成)
+  directus:
+    image: directus/directus:11.3.5
+    container_name: dataos-directus
+    restart: unless-stopped
+    profiles: ["apps"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_CLIENT: pg
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      CACHE_ENABLED: "true"
+      CACHE_STORE: redis
+      REDIS: redis://:${REDIS_PASSWORD}@redis:6379
+      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD}
+      KEY: ${JWT_SECRET}
+      SECRET: ${JWT_SECRET}
+      STORAGE_LOCATIONS: s3
+      STORAGE_S3_DRIVER: s3
+      STORAGE_S3_ENDPOINT: http://minio:9000
+      STORAGE_S3_KEY: ${MINIO_ROOT_USER}
+      STORAGE_S3_SECRET: ${MINIO_ROOT_PASSWORD}
+      STORAGE_S3_BUCKET: directus
+      STORAGE_S3_REGION: us-east-1
+      STORAGE_S3_FORCE_PATH_STYLE: "true"
+      EXTENSIONS_AUTO_RELOAD: "true"
+    ports:
+      - "${DIRECTUS_PORT}:8055"
+    volumes:
+      - directus-uploads:/directus/uploads
+      - ./components/directus/extensions:/directus/extensions
+      - ./components/directus/snapshots:/directus/snapshots
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8055/server/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dataos-net
+
+  # ============================================================
+  # 平台层 (profile: platform)
+  # ============================================================
+
+  # DataOS Platform Backend — FastAPI
+  platform-backend:
+    build:
+      context: ./platform/backend
+      dockerfile: Dockerfile
+    container_name: dataos-platform-backend
+    restart: unless-stopped
+    profiles: ["platform"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+aiomysql://dataos:dataos_2025@mysql:3306/dataos_platform
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}
+      DEBUG: "true"
+      DOLPHINSCHEDULER_URL: http://dolphinscheduler:12345
+      OPENMETADATA_URL: http://openmetadata:8585
+      SEATUNNEL_URL: http://seatunnel:8080
+      CRAWLAB_URL: http://crawlab:8088
+      DATAVINES_URL: http://datavines:5600
+      DIRECTUS_URL: http://directus:8055
+    ports:
+      - "${PLATFORM_BACKEND_PORT}:8000"
+    volumes:
+      - ./platform/backend/app:/app/app
+    networks:
+      - dataos-net
+
+  # DataOS Platform Frontend — React + Vite + Tailwind
+  platform-frontend:
+    build:
+      context: ./platform/frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: dataos-platform-frontend
+    restart: unless-stopped
+    profiles: ["platform"]
+    depends_on:
+      - platform-backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "${PLATFORM_FRONTEND_PORT}:5000"
+    volumes:
+      - ./platform/frontend/src:/app/src
+      - ./platform/frontend/public:/app/public
+      - ./platform/frontend/index.html:/app/index.html
+      - ./platform/frontend/vite.config.ts:/app/vite.config.ts
+      - ./platform/frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./platform/frontend/tsconfig.json:/app/tsconfig.json
+    networks:
+      - dataos-net
+
+# ============================================================
+# Volumes
+# ============================================================
+volumes:
+  mysql-data:
+  pg-data:
+  mongo-data:
+  redis-data:
+  es-data:
+  zk-data:
+  zk-datalog:
+  minio-data:
+  ds-logs:
+  ds-data:
+  om-data:
+  crawlab-data:
+  directus-uploads:
+
+# ============================================================
+# Network
+# ============================================================
+networks:
+  dataos-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET}
