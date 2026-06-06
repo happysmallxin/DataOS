@@ -722,14 +722,14 @@ audit_logs.project_id → projects.id (NULLABLE, SET NULL ON DELETE)
 
 #### 3.7.5 隔离缺口与修复计划
 
-| # | 缺口 | 风险 | 修复方案 | 优先级 |
-|---|------|------|---------|:---:|
-| 1 | 质量规则无持久化 | 规则无法跨会话复用，无法按项目隔离 | 新增 `quality_rules` 表 + `project_id` FK + CRUD API | P1 |
-| 2 | 清洗 Pipeline 无持久化 | Pipeline 定义无法保存和复用 | 新增 `pipelines` 表 + `project_id` FK + CRUD API | P1 |
-| 3 | datasources 无 (project_id, name) 唯一约束 | 同一项目内可能创建同名数据源 | `ALTER TABLE datasources ADD UNIQUE KEY uq_ds (project_id, name)` | P0 |
-| 4 | Quality API 无认证守卫 | `/api/v1/quality/check` 和 `/rules` 不需要登录 | 添加 `Depends(get_current_user)` | P0 |
-| 5 | Cleaning API 无认证守卫 | `/api/v1/cleaning/*` 不需要登录 | 添加 `Depends(get_current_user)` | P0 |
-| 6 | 爬虫任务无项目归属 | Crawlab 侧无 project_id 映射 | Crawlab tag/label 传递 project_id | P2 |
+| # | 缺口 | 风险 | 修复方案 | 优先级 | 状态 |
+|---|------|------|---------|:---:|:---:|
+| 1 | 质量规则无持久化 | 规则无法跨会话复用，无法按项目隔离 | 新增 `quality_rules` 表 + `project_id` FK + CRUD API | P1 | 🔜 |
+| 2 | 清洗 Pipeline 无持久化 | Pipeline 定义无法保存和复用 | 新增 `pipelines` 表 + `project_id` FK + CRUD API | P1 | 🔜 |
+| 3 | datasources 无 (project_id, name) 唯一约束 | 同一项目内可能创建同名数据源 | 模型层 `UniqueConstraint("project_id", "name")` + API 层预查 + IntegrityError 捕获 | P0 | ✅ |
+| 4 | Quality API 无认证守卫 | `/api/v1/quality/check` 和 `/rules` 不需要登录 | 所有端点添加 `Depends(get_current_user)` | P0 | ✅ |
+| 5 | Cleaning API 无认证守卫 | `/api/v1/cleaning/*` 不需要登录 | 所有端点添加 `Depends(get_current_user)` | P0 | ✅ |
+| 6 | 爬虫任务无项目归属 | Crawlab 侧无 project_id 映射 | Crawlab tag/label 传递 project_id | P2 | 🔜 |
 
 #### 3.7.6 设计对比: DataOS vs DataWorks 项目隔离
 

@@ -6,6 +6,7 @@ RBAC 权限: 所有操作需要对应项目的成员角色 + resource:action 权
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -67,6 +68,19 @@ async def create_datasource(
     db: AsyncSession = Depends(get_db),
 ):
     """注册新数据源 — 自动加密敏感配置."""
+    # 检查同项目下是否存在同名数据源 (P0: 唯一约束)
+    existing = await db.execute(
+        select(DataSource).where(
+            DataSource.project_id == req.project_id,
+            DataSource.name == req.name,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail=f"项目内已存在同名数据源 '{req.name}'",
+        )
+
     # 加密敏感字段
     encrypted_config = encrypt_config(req.config)
 
@@ -78,7 +92,14 @@ async def create_datasource(
         description=req.description,
     )
     db.add(ds)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"项目内已存在同名数据源 '{req.name}'",
+        )
     await db.refresh(ds)
 
     # 审计日志
