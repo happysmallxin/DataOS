@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout, Menu, Button, Avatar, Dropdown, theme } from 'antd'
 import {
@@ -44,11 +44,20 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { token } = theme.useToken()
-  const { user, logout, hasPermission } = useAuthStore()
+  // 直接订阅 globalRoles + permissions 以确保登录后重渲染
+  const { user, logout, hasPermission, globalRoles, permissions, isAuthenticated } = useAuthStore()
 
-  // 按权限过滤菜单
+  // 登录后如果权限为空，从 API 重新拉取 (安全网, 防止 Zustand 状态丢失)
+  useEffect(() => {
+    if (isAuthenticated && permissions.length === 0 && globalRoles.length === 0) {
+      useAuthStore.getState().fetchPermissions()
+    }
+  }, [isAuthenticated, permissions.length, globalRoles.length])
+
+  // 按权限过滤菜单 — 使用直接读取的 globalRoles 做超级管理员判定
+  const isAdmin = globalRoles.some(r => ['super_admin', 'admin'].includes(r))
   const menuItems = allMenuItems
-    .filter((item) => !item.permission || hasPermission(item.permission))
+    .filter((item) => !item.permission || isAdmin || permissions.includes(item.permission))
     .map(({ key, icon, label }) => ({ key, icon, label }))
 
   const handleLogout = () => {
