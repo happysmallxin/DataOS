@@ -440,6 +440,32 @@ export default function ProjectDetail() {
               )}
             </Space>
           </Card>
+
+          {/* 数据服务 — Directus API */}
+          <Card title="数据服务 (Directus API)" size="small" style={{ marginTop: 16 }}>
+            {pipelineCount > 0 ? (
+              <div>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  清洗后的数据已发布到 Directus，可通过 REST API 访问：
+                </Text>
+                <div style={{ marginTop: 8, padding: 12, background: '#f6f8fa', borderRadius: 6 }}>
+                  <Text copyable code style={{ fontSize: 13 }}>
+                    GET http://localhost:8055/items/clean_users
+                  </Text>
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <Button size="small" icon={<LinkOutlined />}
+                    onClick={() => window.open('http://localhost:8055/admin', '_blank')}>
+                    打开 Directus 管理后台
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                暂无清洗数据。创建并执行 Pipeline 后，清洗结果会自动发布到 Directus。
+              </Text>
+            )}
+          </Card>
         </div>
       ),
     },
