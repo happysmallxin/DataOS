@@ -45,6 +45,7 @@ from app.models.project import Project
 from app.models.role import Role
 from app.models.project_member import ProjectMember
 from app.models.audit_log import AuditLog
+from app.models.datasource import DataSource
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Projects"])
 
@@ -167,6 +168,13 @@ async def list_projects(
         )
         member_count = member_count_result.scalar() or 0
 
+        datasource_count_result = await db.execute(
+            select(func.count()).select_from(DataSource).where(
+                DataSource.project_id == p.id
+            )
+        )
+        datasource_count = datasource_count_result.scalar() or 0
+
         items.append(ProjectResponse(
             id=p.id,
             name=p.name,
@@ -175,7 +183,7 @@ async def list_projects(
             owner_id=p.owner_id,
             status=p.status,
             member_count=member_count,
-            datasource_count=0,
+            datasource_count=datasource_count,
             created_at=p.created_at,
             updated_at=p.updated_at,
         ))
