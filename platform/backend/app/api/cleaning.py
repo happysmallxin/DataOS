@@ -340,6 +340,14 @@ async def run_pipeline(
                 from sqlalchemy import create_engine as sync_create_engine
                 pg_engine = sync_create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 10})
                 output_df.to_sql(target_table, pg_engine, if_exists="replace", index=False)
+                # 确保有主键 (Directus 要求)
+                if "id" in output_df.columns:
+                    from sqlalchemy import text as sa_text
+                    with pg_engine.connect() as conn:
+                        conn.execute(sa_text(
+                            f"ALTER TABLE {target_table} ADD PRIMARY KEY (id)"
+                        ))
+                        conn.commit()
                 pg_engine.dispose()
                 pg_result = {"table": target_table, "engine": "postgresql", "rows": output_rows}
             except Exception as pg_err:
