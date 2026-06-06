@@ -403,22 +403,36 @@ DataOS（上游）                        RelOS（下游）
 
 ---
 
-## 八、Phase 1 实际状态
+## 八、Phase 1 实际状态 (2026-06-06)
 
 | 服务 | 端口 | 状态 | 说明 |
 |------|------|------|------|
-| 平台前端 (React) | 5000 | ✅ | 6 页面完整 |
-| 平台后端 (FastAPI) | 8001 | ✅ | 本地运行 |
-| Meilisearch | 7700 | ✅ | 全文搜索, ARM64 原生 |
-| DolphinScheduler | 12345 | ✅ | 任务调度 |
-| Directus | 8055 | ✅ | API 服务化 |
-| MySQL | 3307 | ✅ | 共享数据库 |
-| PostgreSQL | 5432 | ✅ | Directus 库 |
-| MongoDB | 27017 | ✅ | Crawlab 库 |
-| Redis | 6380 | ✅ | 缓存 |
-| MinIO | 9000 | ✅ | S3 存储 |
-| ZooKeeper | 2181 | ⚠️ | DS 协调 |
-| Crawlab | 8088 | ⚠️ | 爬虫管理 |
-| SeaTunnel | 8080 | ⚠️ | 数据集成 |
-| OpenMetadata | 8585 | ⏭️ | 依赖 ES |
-| Datavines | — | ⏭️ | 无 Docker 镜像 |
+| 平台前端 (React) | 5000 | ✅ | 6 页面, 数据源页对接真实 API |
+| 平台后端 (FastAPI) | 8001 | ✅ | CRUD + JWT + 质量引擎 + 搜索 |
+| Meilisearch | 7700 | ✅ | 全文搜索, ARM64 原生, ~130MB |
+| DolphinScheduler | 12345 | ✅ | 任务调度, Standalone |
+| Directus | 8055 | ✅ | REST+GraphQL API 自动生成 |
+| MySQL | 3307 | ✅ | users/projects/datasources 表 |
+| PostgreSQL | 5432 | ✅ | Directus 数据库 |
+| MongoDB | 27017 | ✅ | Crawlab 数据库 |
+| Redis | 6380 | ✅ | 缓存 / 消息队列 |
+| MinIO | 9000 | ✅ | S3 对象存储 |
+| Great Expectations | — | ✅ | Python 本地, 5 种核心规则 |
+| ZooKeeper | 2181 | ⚠️ | DS 协调, 健康检查回环问题 |
+| Crawlab | 8088 | ⚠️ | qemu 模拟 x86, 健康检查已修复 |
+| SeaTunnel | 8080 | ⏭️ | 6.3GB Java, Apple Silicon 跳过 |
+| OpenMetadata | 8585 | ⏭️ | 依赖 ES, Phase 2 |
+| Datavines | — | ⏭️ | 无 Docker 镜像, 用 GE 替代 |
+
+### Phase 1 已完成功能
+
+- [x] Docker Compose 集成 15 个服务 (profiles: apps/platform)
+- [x] 统一平台前端 6 页面 (工作台/数据源/爬虫/质量/API/设置)
+- [x] FastAPI 后端: 项目管理/数据源 CRUD/JWT 认证/组件健康代理
+- [x] 数据库自动建表 + 种子管理员 (admin/admin123)
+- [x] 数据源管理前端对接真实 API (创建/列表/刷新)
+- [x] Meilisearch 全文搜索 (替换 ES, ARM64 原生)
+- [x] SearchService 抽象层 (生产切 ES 只需改一行)
+- [x] 数据质量引擎 (5 种规则, API 执行检查)
+- [x] JWT 认证中间件 (可选认证, 接口保护就绪)
+- [x] Playwright E2E 测试 29/29 全部通过
