@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit
+from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit, crawlers
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 
@@ -26,6 +26,7 @@ import app.models.project_member    # noqa: F401
 import app.models.audit_log         # noqa: F401
 import app.models.quality_rule      # noqa: F401 — P1: 质量规则持久化
 import app.models.pipeline          # noqa: F401 — P1: Pipeline 持久化
+import app.models.crawler           # noqa: F401 — P2: 爬虫任务映射
 
 
 # ============================================================
@@ -318,6 +319,7 @@ app.include_router(quality.router)
 app.include_router(cleaning.router)
 app.include_router(permissions.router)
 app.include_router(audit.router)
+app.include_router(crawlers.router)
 
 
 @app.get("/")

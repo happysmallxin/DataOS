@@ -729,7 +729,7 @@ audit_logs.project_id → projects.id (NULLABLE, SET NULL ON DELETE)
 | 3 | datasources 无 (project_id, name) 唯一约束 | 同一项目内可能创建同名数据源 | 模型层 `UniqueConstraint("project_id", "name")` + API 层预查 + IntegrityError 捕获 | P0 | ✅ |
 | 4 | Quality API 无认证守卫 | `/api/v1/quality/check` 和 `/rules` 不需要登录 | 所有端点添加 `Depends(get_current_user)` | P0 | ✅ |
 | 5 | Cleaning API 无认证守卫 | `/api/v1/cleaning/*` 不需要登录 | 所有端点添加 `Depends(get_current_user)` | P0 | ✅ |
-| 6 | 爬虫任务无项目归属 | Crawlab 侧无 project_id 映射 | Crawlab tag/label 传递 project_id | P2 | 🔜 |
+| 6 | 爬虫任务无项目归属 | Crawlab 侧无 project_id 映射 | 新增 `crawlers` 表 + `project_id` FK + CRUD API + 启停控制 + Crawlab 映射字段 `crawlab_task_id` | P2 | ✅ |
 
 #### 3.7.6 设计对比: DataOS vs DataWorks 项目隔离
 

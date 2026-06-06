@@ -166,6 +166,22 @@ export const auditAPI = {
 }
 
 // ============================================================
+// Crawlers (P2)
+// ============================================================
+export const crawlersAPI = {
+  list: (projectId: number, status?: string) =>
+    api.get('/crawlers', { params: { project_id: projectId, status } }),
+  get: (id: number) => api.get(`/crawlers/${id}`),
+  create: (data: { project_id: number; name: string; target_url?: string; framework?: string; config?: Record<string, unknown>; description?: string }) =>
+    api.post('/crawlers', data),
+  update: (id: number, data: Record<string, unknown>) =>
+    api.put(`/crawlers/${id}`, data),
+  delete: (id: number) => api.delete(`/crawlers/${id}`),
+  start: (id: number) => api.post(`/crawlers/${id}/start`),
+  stop: (id: number) => api.post(`/crawlers/${id}/stop`),
+}
+
+// ============================================================
 // Health
 // ============================================================
 export const healthAPI = {
