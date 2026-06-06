@@ -17,6 +17,7 @@ from app.api.deps import (
     get_user_global_roles,
 )
 from app.api.schemas import DataSourceCreate, DataSourceResponse, SyncRequest, SyncHistoryResponse
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.crypto import encrypt_config, decrypt_config
 from app.models.user import User
@@ -215,6 +216,7 @@ async def get_source_types():
 # ============================================================
 
 import time
+from datetime import datetime, timezone
 import pandas as pd
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
