@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # 加密密钥 (Fernet key, 生产环境使用 KMS)
+    DATAOS_ENCRYPTION_KEY: str = ""
+
     # JWT
     JWT_SECRET: str = "dataos-jwt-secret-dev-only-change-in-prod"
     JWT_ALGORITHM: str = "HS256"
