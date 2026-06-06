@@ -104,39 +104,31 @@ services:
     networks:
       - dataos-net
 
-  # OpenSearch 2.18 — OpenMetadata 搜索引擎
-  # ⚠️ Apple Silicon Docker 已知 JVM SIGILL 问题，本地开发可跳过
-  #    生产环境 (x86_64 Linux) 正常使用
-  elasticsearch:
-    image: opensearchproject/opensearch:2.18.0
-    container_name: dataos-elasticsearch
+  # Meilisearch 1.12 — 全文搜索引擎 (Rust 原生 ARM64, 替代 ES/OpenSearch)
+  # Admin UI: http://localhost:7700  |  API Key 在 .env 中
+  # 迁移到 ES: 改 SearchService adapter + 重建索引，半天完成
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: dataos-meilisearch
     platform: linux/arm64
-    restart: "no"  # 暂时不自动重启，避免 crash loop
+    restart: unless-stopped
     environment:
-      - discovery.type=single-node
-      - plugins.security.disabled=true
-      - "OPENSEARCH_JAVA_OPTS=-Xms256m -Xmx256m -XX:UseSVE=0"
-      - "DISABLE_INSTALL_DEMO_CONFIG=true"
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: development
+      MEILI_DB_PATH: /meili_data
+      MEILI_HTTP_ADDR: 0.0.0.0:7700
     ports:
-      - "${ES_PORT}:9200"
-      - "${ES_TRANSPORT_PORT}:9300"
+      - "${MEILI_PORT}:7700"
     volumes:
-      - es-data:/usr/share/elasticsearch/data
+      - meili-data:/meili_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q 'green\\|yellow'"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 40s
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - dataos-net
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
 
   # ZooKeeper 3.8 — DolphinScheduler 协调
   zookeeper:
@@ -230,7 +222,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      elasticsearch:
+      meilisearch:
         condition: service_healthy
     environment:
       DB_DRIVER_CLASS: com.mysql.cj.jdbc.Driver
@@ -241,8 +233,8 @@ services:
       DB_HOST: mysql
       DB_PORT: "3306"
       DB_DATABASE: openmetadata
-      ELASTICSEARCH_HOST: elasticsearch
-      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_HOST: meilisearch
+      ELASTICSEARCH_PORT: "7700"
       ELASTICSEARCH_SCHEME: http
       SERVER_PORT: "8585"
     ports:
@@ -454,7 +446,7 @@ volumes:
   pg-data:
   mongo-data:
   redis-data:
-  es-data:
+  meili-data:
   zk-data:
   zk-datalog:
   minio-data:

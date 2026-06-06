@@ -54,6 +54,7 @@ seatunnel = ComponentClient(settings.SEATUNNEL_URL, "SeaTunnel")
 crawlab = ComponentClient(settings.CRAWLAB_URL, "Crawlab")
 datavines = ComponentClient(settings.DATAVINES_URL, "Datavines")
 directus = ComponentClient(settings.DIRECTUS_URL, "Directus")
+meilisearch = ComponentClient(settings.MEILI_URL, "Meilisearch")
 
 # 按启动顺序排列
 ALL_COMPONENTS: list[ComponentClient] = [
@@ -63,4 +64,5 @@ ALL_COMPONENTS: list[ComponentClient] = [
     crawlab,
     datavines,
     directus,
+    meilisearch,
 ]

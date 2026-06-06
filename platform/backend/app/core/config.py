@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     CRAWLAB_URL: str = "http://localhost:8088"
     DATAVINES_URL: str = "http://localhost:5600"
     DIRECTUS_URL: str = "http://localhost:8055"
+    MEILI_URL: str = "http://localhost:7700"
+    MEILI_MASTER_KEY: str = "dataos-meili-dev-key-change-in-prod"
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5000", "http://localhost:5173", "http://localhost:3000"]
