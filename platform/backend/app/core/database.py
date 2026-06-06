@@ -10,7 +10,8 @@ engine = create_async_engine(
     echo=settings.DEBUG,
     pool_size=20,
     max_overflow=10,
-    pool_pre_ping=True,
+    pool_pre_ping=False,  # 关闭: aiomysql ping() 兼容性问题
+    pool_recycle=3600,    # 1小时回收连接，防止 MySQL 断连
 )
 
 # 异步 Session 工厂

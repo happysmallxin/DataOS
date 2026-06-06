@@ -56,6 +56,7 @@ class ProjectResponse(BaseModel):
 # DataSource
 # ============================================================
 class DataSourceCreate(BaseModel):
+    project_id: int = Field(default=1)
     name: str = Field(..., max_length=128)
     source_type: str = Field(..., max_length=64)
     config: dict

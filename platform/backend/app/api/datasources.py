@@ -25,7 +25,7 @@ async def list_datasources(project_id: int | None = None, db: AsyncSession = Dep
 @router.post("", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_datasource(req: DataSourceCreate, db: AsyncSession = Depends(get_db)):
     """注册新数据源."""
-    ds = DataSource(project_id=1, name=req.name, source_type=req.source_type, config=req.config, description=req.description)
+    ds = DataSource(project_id=req.project_id, name=req.name, source_type=req.source_type, config=req.config, description=req.description)
     db.add(ds)
     await db.flush()
     await db.refresh(ds)

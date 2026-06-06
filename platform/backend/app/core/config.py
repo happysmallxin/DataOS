@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = True
 
-    # 数据库
-    DATABASE_URL: str = "mysql+aiomysql://dataos:dataos_2025@localhost:3306/dataos_platform"
+    # 数据库 (本地开发连 localhost:3307, Docker 内连 mysql:3306)
+    DATABASE_URL: str = "mysql+aiomysql://dataos:dataos_2025@localhost:3307/dataos_platform"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"

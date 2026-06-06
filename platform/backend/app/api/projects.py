@@ -26,7 +26,7 @@ async def create_project(req: ProjectCreate, db: AsyncSession = Depends(get_db))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="工作空间名称已存在")
 
-    project = Project(name=req.name, display_name=req.display_name, description=req.description, owner_id=1)
+    project = Project(name=req.name, display_name=req.display_name, description=req.description, owner_id=1)  # TODO: 从 JWT token 获取真实用户
     db.add(project)
     await db.flush()
     await db.refresh(project)

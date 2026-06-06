@@ -13,16 +13,45 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, health, projects, datasources
 from app.core.config import settings
+from app.core.database import engine, Base, AsyncSessionLocal
+
+# 确保所有模型被导入 (触发 table metadata 注册)
+import app.models.user        # noqa: F401
+import app.models.project     # noqa: F401
+import app.models.datasource  # noqa: F401
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理."""
-    # 启动时
+    # 启动时 — 自动建表 + 种子数据 (开发环境, 生产用 Alembic migration)
+    from app.core.security import hash_password
+    from app.models.user import User
+    from sqlalchemy import select
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # 创建默认管理员 (如果不存在)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.username == "admin"))
+        if not result.scalar_one_or_none():
+            session.add(User(
+                username="admin",
+                email="admin@dataos.local",
+                hashed_password=hash_password("admin123"),
+                display_name="管理员",
+                is_active=True,
+                is_superuser=True,
+            ))
+            await session.commit()
+            print("👤 默认管理员已创建 (admin / admin123)")
+
     print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} starting...")
-    print(f"   API Docs: http://0.0.0.0:8000/docs")
+    print(f"   API Docs: http://0.0.0.0:8001/docs")
     yield
     # 关闭时
+    await engine.dispose()
     print("👋 DataOS shutting down...")
 
 
