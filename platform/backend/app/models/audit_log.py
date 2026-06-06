@@ -9,7 +9,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    String, Text, DateTime, func, ForeignKey, BigInteger, JSON, Integer
+    String, Text, DateTime, func, ForeignKey, JSON, Integer
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,7 +21,7 @@ class AuditLog(Base):
 
     __tablename__ = "audit_logs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False, index=True
     )

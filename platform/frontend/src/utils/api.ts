@@ -9,23 +9,25 @@ const api = axios.create({
 
 // 请求拦截器 — 自动附加 JWT Token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('dataos_token')
+  const token = localStorage.getItem('access_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
 
-// 响应拦截器 — 统一错误处理
+// 响应拦截器 — 401 清除 token 并跳转登录
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('dataos_token')
-      // 暂不跳转登录，Phase 2 完善
+      localStorage.removeItem('access_token')
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
-  }
+  },
 )
 
 // ============================================================
@@ -35,15 +37,33 @@ export const authAPI = {
   login: (username: string, password: string) =>
     api.post('/auth/login', { username, password }),
   me: () => api.get('/auth/me'),
+  register: (username: string, password: string) =>
+    api.post('/auth/register', { username, password }),
 }
 
 // ============================================================
 // Projects
 // ============================================================
 export const projectsAPI = {
-  list: () => api.get('/projects'),
+  list: (params?: Record<string, any>) => api.get('/projects', { params }),
+  get: (id: number) => api.get(`/projects/${id}`),
   create: (data: { name: string; display_name: string; description?: string }) =>
     api.post('/projects', data),
+  update: (id: number, data: Record<string, any>) => api.put(`/projects/${id}`, data),
+  delete: (id: number) => api.delete(`/projects/${id}`),
+  transfer: (id: number, newOwnerId: number) =>
+    api.post(`/projects/${id}/transfer`, { new_owner_id: newOwnerId }),
+  freeze: (id: number) => api.post(`/projects/${id}/freeze`),
+  unfreeze: (id: number) => api.post(`/projects/${id}/unfreeze`),
+  listMembers: (id: number) => api.get(`/projects/${id}/members`),
+  addMember: (id: number, data: { user_id: number; role_id: number }) =>
+    api.post(`/projects/${id}/members`, data),
+  updateMember: (projectId: number, userId: number, data: { role_id: number }) =>
+    api.put(`/projects/${projectId}/members/${userId}`, data),
+  removeMember: (projectId: number, userId: number) =>
+    api.delete(`/projects/${projectId}/members/${userId}`),
+  auditLogs: (id: number, params?: Record<string, any>) =>
+    api.get(`/projects/${id}/audit-logs`, { params }),
 }
 
 // ============================================================
@@ -52,9 +72,44 @@ export const projectsAPI = {
 export const datasourcesAPI = {
   list: (projectId?: number) =>
     api.get('/datasources', { params: projectId ? { project_id: projectId } : {} }),
-  create: (data: { project_id?: number; name: string; source_type: string; config: Record<string, unknown>; description?: string }) =>
-    api.post('/datasources', data),
+  create: (data: {
+    project_id?: number; name: string; source_type: string
+    config: Record<string, unknown>; description?: string
+  }) => api.post('/datasources', data),
+  delete: (id: number) => api.delete(`/datasources/${id}`),
   types: () => api.get('/datasources/types'),
+}
+
+// ============================================================
+// Roles & Permissions
+// ============================================================
+export const rolesAPI = {
+  list: () => api.get('/roles'),
+  create: (data: { name: string; display_name: string; scope: string; description?: string }) =>
+    api.post('/roles', data),
+  update: (id: number, data: Record<string, any>) => api.put(`/roles/${id}`, data),
+  delete: (id: number) => api.delete(`/roles/${id}`),
+  getPermissions: (id: number) => api.get(`/roles/${id}/permissions`),
+  listPermissions: () => api.get('/permissions'),
+}
+
+// ============================================================
+// User Management
+// ============================================================
+export const usersAPI = {
+  myPermissions: (projectId?: number) =>
+    api.get('/users/me/permissions', { params: projectId ? { project_id: projectId } : {} }),
+  assignRole: (userId: number, roleId: number) =>
+    api.post(`/users/${userId}/roles`, { role_id: roleId }),
+  revokeRole: (userId: number, roleId: number) =>
+    api.delete(`/users/${userId}/roles/${roleId}`),
+}
+
+// ============================================================
+// Audit Logs
+// ============================================================
+export const auditAPI = {
+  list: (params?: Record<string, any>) => api.get('/audit-logs', { params }),
 }
 
 // ============================================================
@@ -62,6 +117,29 @@ export const datasourcesAPI = {
 // ============================================================
 export const healthAPI = {
   check: () => api.get('/health'),
+}
+
+// ============================================================
+// Quality
+// ============================================================
+export const qualityAPI = {
+  check: (data: { data: Record<string, unknown>[]; rules: Record<string, unknown>[] }) =>
+    api.post('/quality/check', data),
+  rules: () => api.get('/quality/rules'),
+}
+
+// ============================================================
+// Cleaning
+// ============================================================
+export const cleaningAPI = {
+  profile: (data: { data: Record<string, unknown>[]; sample_size?: number }) =>
+    api.post('/cleaning/profile', data),
+  runPipeline: (data: {
+    data: Record<string, unknown>[]
+    stages: Record<string, unknown>[]
+    pipeline_name?: string
+  }) => api.post('/cleaning/pipelines/run', data),
+  stages: () => api.get('/cleaning/stages'),
 }
 
 export default api

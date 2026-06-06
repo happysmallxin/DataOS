@@ -1,4 +1,8 @@
-import { Card, Col, Row, Statistic, Tag, List, Typography, Space } from 'antd'
+/**
+ * 工作台 Dashboard — 实时组件状态 + 统计.
+ */
+import { useEffect, useState } from 'react'
+import { Card, Col, Row, Statistic, Tag, List, Typography, Space, Spin } from 'antd'
 import {
   DatabaseOutlined,
   BugOutlined,
@@ -6,33 +10,50 @@ import {
   SafetyCertificateOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  SyncOutlined,
+  CloseCircleOutlined,
 } from '@ant-design/icons'
+import apiClient from '../api/client'
 
 const { Title, Text } = Typography
 
-// 组件状态模拟数据 — Phase 2 接入真实 API
-const componentStatus = [
-  { name: 'DolphinScheduler', url: 'http://localhost:12345', status: 'running' as const },
-  { name: 'OpenMetadata', url: 'http://localhost:8585', status: 'running' as const },
-  { name: 'SeaTunnel', url: 'http://localhost:8080', status: 'pending' as const },
-  { name: 'Crawlab', url: 'http://localhost:8088', status: 'running' as const },
-  { name: 'Datavines', url: 'http://localhost:5600', status: 'pending' as const },
-  { name: 'Directus', url: 'http://localhost:8055', status: 'pending' as const },
-]
-
-const statusConfig = {
-  running: { color: 'green', icon: <CheckCircleOutlined />, text: '运行中' },
-  pending: { color: 'orange', icon: <SyncOutlined spin />, text: '待启动' },
-  error: { color: 'red', icon: <ExclamationCircleOutlined />, text: '异常' },
+interface ComponentItem {
+  name: string
+  url: string
+  healthy: boolean
+  message?: string
 }
 
 export default function Dashboard() {
+  const [components, setComponents] = useState<ComponentItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const resp = await apiClient.get('/../health') // /health is at root level
+        setComponents(resp.data.components || [])
+      } catch {
+        // Fallback: use direct health endpoint
+        try {
+          const resp = await fetch('/api/../health').then(r => r.json())
+          setComponents(resp.components || [])
+        } catch {
+          // Keep empty
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchHealth()
+  }, [])
+
+  const healthyCount = components.filter(c => c.healthy).length
+  const totalCount = components.length
+
   return (
     <div>
       <Title level={4} style={{ marginBottom: 24 }}>工作台</Title>
 
-      {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} lg={6}>
           <Card hoverable>
@@ -56,33 +77,51 @@ export default function Dashboard() {
         </Col>
       </Row>
 
-      {/* 组件状态 */}
-      <Card title="平台组件状态">
-        <List
-          dataSource={componentStatus}
-          renderItem={(item) => {
-            const config = statusConfig[item.status]
-            return (
-              <List.Item
-                extra={
-                  <Space>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{item.url}</Text>
-                    <Tag color={config.color} icon={config.icon}>{config.text}</Tag>
-                  </Space>
-                }
-              >
-                <List.Item.Meta
-                  title={<Text strong>{item.name}</Text>}
-                  description={
-                    <Text type="secondary">
-                      {item.status === 'running' ? '服务正常' : '尚未启动，请执行 docker compose up'}
-                    </Text>
+      <Card
+        title={
+          <Space>
+            <span>平台组件状态</span>
+            {!loading && (
+              <Tag color={healthyCount === totalCount ? 'green' : 'orange'}>
+                {healthyCount}/{totalCount} 正常
+              </Tag>
+            )}
+          </Space>
+        }
+      >
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : (
+          <List
+            dataSource={components}
+            renderItem={(item) => {
+              const icon = item.healthy
+                ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                : <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+              return (
+                <List.Item
+                  extra={
+                    <Space>
+                      <Text type="secondary" style={{ fontSize: 12 }}>{item.url}</Text>
+                      <Tag color={item.healthy ? 'green' : 'red'} icon={icon}>
+                        {item.healthy ? '正常' : '异常'}
+                      </Tag>
+                    </Space>
                   }
-                />
-              </List.Item>
-            )
-          }}
-        />
+                >
+                  <List.Item.Meta
+                    title={<Text strong>{item.name}</Text>}
+                    description={
+                      <Text type="secondary">
+                        {item.healthy ? '服务正常' : item.message || '服务不可达'}
+                      </Text>
+                    }
+                  />
+                </List.Item>
+              )
+            }}
+          />
+        )}
       </Card>
     </div>
   )

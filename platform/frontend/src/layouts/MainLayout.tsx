@@ -12,16 +12,30 @@ import {
   MenuUnfoldOutlined,
   LogoutOutlined,
   UserOutlined,
+  ProjectOutlined,
+  TeamOutlined,
+  AuditOutlined,
 } from '@ant-design/icons'
+import { useAuthStore } from '../stores/auth'
 
 const { Header, Sider, Content } = Layout
 
-const menuItems = [
+interface MenuItem {
+  key: string
+  icon: React.ReactNode
+  label: string
+  permission?: string
+}
+
+const allMenuItems: MenuItem[] = [
   { key: '/', icon: <DashboardOutlined />, label: '工作台' },
-  { key: '/datasources', icon: <DatabaseOutlined />, label: '数据源管理' },
-  { key: '/crawlers', icon: <BugOutlined />, label: '网页爬取' },
-  { key: '/quality', icon: <SafetyCertificateOutlined />, label: '数据质量' },
-  { key: '/data-service', icon: <ApiOutlined />, label: '数据服务' },
+  { key: '/projects', icon: <ProjectOutlined />, label: '项目管理', permission: 'project:read' },
+  { key: '/datasources', icon: <DatabaseOutlined />, label: '数据源管理', permission: 'datasource:read' },
+  { key: '/crawlers', icon: <BugOutlined />, label: '网页爬取', permission: 'crawler:read' },
+  { key: '/quality', icon: <SafetyCertificateOutlined />, label: '数据质量', permission: 'quality:read' },
+  { key: '/data-service', icon: <ApiOutlined />, label: '数据服务', permission: 'api:read' },
+  { key: '/roles', icon: <TeamOutlined />, label: '角色权限', permission: 'role:read' },
+  { key: '/audit-logs', icon: <AuditOutlined />, label: '审计日志', permission: 'platform:audit' },
   { key: '/settings', icon: <SettingOutlined />, label: '平台设置' },
 ]
 
@@ -30,6 +44,17 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { token } = theme.useToken()
+  const { user, logout, hasPermission } = useAuthStore()
+
+  // 按权限过滤菜单
+  const menuItems = allMenuItems
+    .filter((item) => !item.permission || hasPermission(item.permission))
+    .map(({ key, icon, label }) => ({ key, icon, label }))
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -59,7 +84,7 @@ export default function MainLayout() {
 
         <Menu
           mode="inline"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[location.pathname === '/' ? '/' : `/${location.pathname.split('/')[1]}`]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
           style={{ border: 'none', marginTop: 8 }}
@@ -88,15 +113,20 @@ export default function MainLayout() {
           <Dropdown
             menu={{
               items: [
-                { key: 'profile', icon: <UserOutlined />, label: '个人设置' },
+                { key: 'profile', icon: <UserOutlined />, label: user?.display_name || user?.username || '用户' },
                 { type: 'divider' },
                 { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
               ],
+              onClick: ({ key }) => {
+                if (key === 'logout') handleLogout()
+              },
             }}
           >
             <div className="flex items-center gap-2 cursor-pointer">
               <Avatar size="small" icon={<UserOutlined />} />
-              <span className="text-sm text-gray-600">管理员</span>
+              <span className="text-sm text-gray-600">
+                {user?.display_name || user?.username || '管理员'}
+              </span>
             </div>
           </Dropdown>
         </Header>
