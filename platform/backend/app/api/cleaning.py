@@ -241,13 +241,19 @@ async def run_pipeline(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """执行清洗 Pipeline — 支持运行时 stages 或加载持久化 Pipeline."""
+    """执行清洗 Pipeline — 支持三种数据来源:
+
+    1. 直接传 data (运行时模式, 向后兼容)
+    2. 传 pipeline_id → 加载持久化 stages 处理直接传的 data
+    3. 传 pipeline_id + pipeline 关联了 datasource_id → 自动从 MinIO 读取同步数据
+    """
     import pandas as pd
 
-    # P1: 如果指定了 pipeline_id，从 DB 加载 stages
     stages: list[dict] = list(req.stages) if req.stages else []
     pipeline_name = req.pipeline_name or "unnamed"
     pipeline_version = req.pipeline_version
+    pl = None
+    df = pd.DataFrame()
 
     if req.pipeline_id:
         pl = await db.get(PipelineModel, req.pipeline_id)
@@ -255,20 +261,73 @@ async def run_pipeline(
             raise HTTPException(status_code=404, detail="Pipeline 不存在")
         if not stages:
             stages = pl.stages
-        pipeline_name = pipeline_name or pl.name
+        pipeline_name = pl.name
         pipeline_version = pl.version
 
-        # 记录执行
-        pl.last_run_at = pd.Timestamp.now()
-        await db.commit()
+        # 🔗 Pipeline 关联了数据源 → 从 MinIO 读取同步数据
+        if pl.datasource_id and pl.source_table and not req.data:
+            from app.core.minio_client import list_objects, read_dataframe, get_bronze_path
+            from app.core.config import settings
 
-    df = pd.DataFrame(req.data) if req.data else pd.DataFrame()
+            prefix = get_bronze_path(pl.datasource_id, pl.source_table)
+            objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
+            if not objects:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"数据源 {pl.datasource_id} 的表 {pl.source_table} 尚未同步到 MinIO，请先执行数据同步"
+                )
+
+            # 读取最新一批同步数据
+            latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
+            df = read_dataframe(settings.MINIO_BUCKET_BRONZE, latest["key"])
+
+    # 直接传入的数据优先 (向后兼容)
+    if df.empty and req.data:
+        df = pd.DataFrame(req.data)
+
+    if df.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="无数据可处理: 请传入 data, 或关联数据源并先执行同步, 或指定 pipeline_id 加载已同步数据"
+        )
+
+    # 执行 Pipeline
     report = pipeline_engine.run(
         df=df, stages=stages,
         pipeline_name=pipeline_name,
         pipeline_version=pipeline_version,
     )
-    return report.to_dict()
+
+    # 🔗 清洗结果写回 MinIO (Silver) + 更新 Pipeline 记录
+    output_rows = 0
+    if pl and pl.datasource_id and pl.source_table:
+        try:
+            from app.core.minio_client import write_dataframe, get_silver_path
+            from app.core.config import settings
+
+            output_df = df.copy()
+            output_rows = len(output_df)
+
+            # 写入 MinIO Silver
+            silver_prefix = get_silver_path(pl.project_id, pl.name)
+            silver_key = f"{silver_prefix}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+            write_dataframe(output_df, settings.MINIO_BUCKET_SILVER, silver_key)
+
+            # 更新 Pipeline 记录
+            pl.last_run_at = pd.Timestamp.now()
+            pl.last_output_rows = output_rows
+            await db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Pipeline 结果写入 MinIO 失败: {e}")
+
+    result = report.to_dict()
+    result["output_storage"] = {
+        "rows": output_rows,
+        "pipeline_id": pl.id if pl else None,
+        "datasource_id": pl.datasource_id if pl else None,
+    }
+    return result
 
 
 @router.get("/stages")

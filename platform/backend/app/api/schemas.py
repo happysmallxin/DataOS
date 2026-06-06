@@ -310,27 +310,37 @@ class QualityRuleResponse(BaseModel):
 # ============================================================
 class PipelineCreate(BaseModel):
     project_id: int
+    datasource_id: Optional[int] = None       # 关联数据源
+    source_table: Optional[str] = None         # 源表名
     name: str = Field(..., max_length=128)
     description: Optional[str] = None
     stages: list[dict] = Field(default_factory=list, description="阶段定义列表")
+    target_table: Optional[str] = None         # 输出目标 PG 表名
 
 
 class PipelineUpdate(BaseModel):
+    datasource_id: Optional[int] = None
+    source_table: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     stages: Optional[list[dict]] = None
+    target_table: Optional[str] = None
     status: Optional[str] = None
 
 
 class PipelineResponse(BaseModel):
     id: int
     project_id: int
+    datasource_id: Optional[int] = None
+    source_table: Optional[str] = None
     name: str
     description: Optional[str] = None
     stages: list[dict]
     status: str
     version: int
+    target_table: Optional[str] = None
     last_run_at: Optional[datetime] = None
+    last_output_rows: int = 0
     created_by: int
     created_at: datetime
     updated_at: datetime
@@ -341,3 +351,36 @@ class PipelineResponse(BaseModel):
 class PipelineListResponse(BaseModel):
     items: list[PipelineResponse]
     total: int
+
+
+# ============================================================
+# Sync / Datasource Usage (数据源使用)
+# ============================================================
+class TableInfo(BaseModel):
+    """表信息."""
+    name: str
+    rows_estimate: Optional[int] = None
+    columns: list[dict] = []
+
+
+class SyncRequest(BaseModel):
+    """同步请求."""
+    table_name: str = Field(..., description="要同步的表名")
+    sync_mode: str = Field(default="full", description="full / incremental")
+
+
+class SyncHistoryResponse(BaseModel):
+    id: int
+    datasource_id: int
+    project_id: int
+    table_name: str
+    sync_mode: str
+    status: str
+    total_rows: int
+    total_bytes: int
+    storage_path: Optional[str] = None
+    error_message: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

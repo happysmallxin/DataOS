@@ -27,6 +27,7 @@ import app.models.audit_log         # noqa: F401
 import app.models.quality_rule      # noqa: F401 — P1: 质量规则持久化
 import app.models.pipeline          # noqa: F401 — P1: Pipeline 持久化
 import app.models.crawler           # noqa: F401 — P2: 爬虫任务映射
+import app.models.sync_history      # noqa: F401 — 数据同步历史
 
 
 # ============================================================

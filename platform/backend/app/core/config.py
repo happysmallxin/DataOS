@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     MEILI_URL: str = "http://localhost:7700"
     MEILI_MASTER_KEY: str = "dataos-meili-dev-key-change-in-prod"
 
+    # MinIO / S3 对象存储 (数据暂存层)
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET_BRONZE: str = "bronze"    # 原始数据层
+    MINIO_BUCKET_SILVER: str = "silver"    # 清洗数据层
+    MINIO_SECURE: bool = False
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5000", "http://localhost:5173", "http://localhost:3000"]
 
