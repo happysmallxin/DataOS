@@ -2,7 +2,7 @@
  * Zustand Auth Store — 用户认证状态 + 权限 + 可访问项目.
  */
 import { create } from 'zustand'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 
 interface UserInfo {
   id: number

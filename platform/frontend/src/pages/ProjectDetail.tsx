@@ -8,7 +8,7 @@ import {
   Form, message, Spin, Popconfirm, Empty,
 } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 import { usePermission } from '../hooks/usePermission'
 
 const { Title, Text } = Typography

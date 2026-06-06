@@ -8,7 +8,7 @@ import {
 } from 'antd'
 import { PlusOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 
 const { Title } = Typography
 

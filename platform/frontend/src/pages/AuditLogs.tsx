@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Tag, Space, Typography, Select, Input, Button, message, Popover } from 'antd'
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 
 const { Title } = Typography
 

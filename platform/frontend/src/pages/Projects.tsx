@@ -7,7 +7,7 @@ import {
   Card, Row, Col, Button, Input, Tag, Space, Typography, Modal, Form, message, Spin, Empty,
 } from 'antd'
 import { PlusOutlined, SearchOutlined, ProjectOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 import { usePermission } from '../hooks/usePermission'
 
 const { Title, Text } = Typography

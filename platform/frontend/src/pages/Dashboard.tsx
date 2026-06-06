@@ -12,7 +12,7 @@ import {
   ExclamationCircleOutlined,
   CloseCircleOutlined,
 } from '@ant-design/icons'
-import apiClient from '../api/client'
+import apiClient from '../utils/api'
 
 const { Title, Text } = Typography
 
