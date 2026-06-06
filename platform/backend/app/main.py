@@ -24,6 +24,8 @@ import app.models.datasource        # noqa: F401
 import app.models.role              # noqa: F401
 import app.models.project_member    # noqa: F401
 import app.models.audit_log         # noqa: F401
+import app.models.quality_rule      # noqa: F401 — P1: 质量规则持久化
+import app.models.pipeline          # noqa: F401 — P1: Pipeline 持久化
 
 
 # ============================================================

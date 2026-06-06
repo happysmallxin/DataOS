@@ -176,9 +176,17 @@ export const healthAPI = {
 // Quality
 // ============================================================
 export const qualityAPI = {
-  check: (data: { data: Record<string, unknown>[]; rules: Record<string, unknown>[] }) =>
+  check: (data: { data: Record<string, unknown>[]; rules: Record<string, unknown>[]; rule_ids?: number[] }) =>
     api.post('/quality/check', data),
-  rules: () => api.get('/quality/rules'),
+  ruleTemplates: () => api.get('/quality/rule-templates'),
+  // P1: 持久化规则 CRUD
+  listRules: (projectId: number, ruleType?: string) =>
+    api.get('/quality/rules', { params: { project_id: projectId, rule_type: ruleType } }),
+  createRule: (data: { project_id: number; name: string; rule_type: string; target_column?: string; config?: Record<string, unknown>; description?: string }) =>
+    api.post('/quality/rules', data),
+  updateRule: (id: number, data: Record<string, unknown>) =>
+    api.put(`/quality/rules/${id}`, data),
+  deleteRule: (id: number) => api.delete(`/quality/rules/${id}`),
 }
 
 // ============================================================
@@ -191,8 +199,18 @@ export const cleaningAPI = {
     data: Record<string, unknown>[]
     stages: Record<string, unknown>[]
     pipeline_name?: string
+    pipeline_id?: number
   }) => api.post('/cleaning/pipelines/run', data),
   stages: () => api.get('/cleaning/stages'),
+  // P1: 持久化 Pipeline CRUD
+  listPipelines: (projectId: number, status?: string) =>
+    api.get('/cleaning/pipelines', { params: { project_id: projectId, status } }),
+  getPipeline: (id: number) => api.get(`/cleaning/pipelines/${id}`),
+  createPipeline: (data: { project_id: number; name: string; description?: string; stages?: Record<string, unknown>[] }) =>
+    api.post('/cleaning/pipelines', data),
+  updatePipeline: (id: number, data: Record<string, unknown>) =>
+    api.put(`/cleaning/pipelines/${id}`, data),
+  deletePipeline: (id: number) => api.delete(`/cleaning/pipelines/${id}`),
 }
 
 export default api

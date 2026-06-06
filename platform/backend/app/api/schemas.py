@@ -266,3 +266,78 @@ class QualityCheckResponse(BaseModel):
     failed_rules: int
     overall_pass_rate: float
     results: list[dict]
+
+
+# ============================================================
+# Quality Rule (P1: 持久化存储)
+# ============================================================
+class QualityRuleCreate(BaseModel):
+    project_id: int
+    name: str = Field(..., max_length=128)
+    rule_type: str = Field(..., max_length=32, description="not_null/range/regex/unique/custom_sql")
+    target_column: Optional[str] = None
+    config: dict = Field(default_factory=dict)
+    description: Optional[str] = None
+
+
+class QualityRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    rule_type: Optional[str] = None
+    target_column: Optional[str] = None
+    config: Optional[dict] = None
+    description: Optional[str] = None
+    is_enabled: Optional[bool] = None
+
+
+class QualityRuleResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    rule_type: str
+    target_column: Optional[str] = None
+    config: dict
+    description: Optional[str] = None
+    is_enabled: bool
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ============================================================
+# Cleaning Pipeline (P1: 持久化存储)
+# ============================================================
+class PipelineCreate(BaseModel):
+    project_id: int
+    name: str = Field(..., max_length=128)
+    description: Optional[str] = None
+    stages: list[dict] = Field(default_factory=list, description="阶段定义列表")
+
+
+class PipelineUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    stages: Optional[list[dict]] = None
+    status: Optional[str] = None
+
+
+class PipelineResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    description: Optional[str] = None
+    stages: list[dict]
+    status: str
+    version: int
+    last_run_at: Optional[datetime] = None
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PipelineListResponse(BaseModel):
+    items: list[PipelineResponse]
+    total: int
