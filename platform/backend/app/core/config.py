@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
 
     # PostgreSQL Gold 层 (清洗后数据, Directus API 发布)
-    PG_GOLD_URL: str = "postgresql://dataos:dataos_2025@localhost:5432/dataos_gold"
+    PG_GOLD_URL: str = "postgresql://dataos:dataos_2025@localhost:5432/directus"
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5000", "http://localhost:5173", "http://localhost:3000"]
