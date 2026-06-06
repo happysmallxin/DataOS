@@ -1,8 +1,9 @@
 # DataOS 项目管理模块 — 技术详细设计文档
 
-> 对标: DataWorks 工作空间 + DataLeap 项目中心  
-> 版本: v1.0  
-> 日期: 2026-06-06
+> 对标: DataWorks 工作空间 + DataLeap 项目中心 + Dataphin OneData 方法论  
+> 版本: v2.0  
+> 日期: 2026-06-06  
+> 基于: [深度研究] 互联网大厂数据服务平台项目管理模块对比分析
 
 ---
 
@@ -97,15 +98,20 @@
 
 ### 3.2 权限矩阵 (RBAC 模型)
 
-#### 角色定义
+#### 角色定义 (v2.0 对齐 DataWorks 专业版)
 
-| 角色 | scope | 级别 | 说明 |
-|------|-------|:---:|------|
-| `super_admin` | global | L5 | 超级管理员，拥有全部权限，管理所有资源和用户 |
-| `admin` | global | L4 | 平台管理员，管理用户和全局配置 |
-| `project_owner` | project | L3 | 项目负责人，管理项目内所有资源和成员 |
-| `editor` | project | L2 | 编辑者，可创建和修改资源，不可删除和管成员 |
-| `viewer` | project | L1 | 查看者，只读所有资源 |
+| 角色 | scope | 级别 | 对标 DataWorks | 说明 |
+|------|-------|:---:|---------------|------|
+| `super_admin` | global | L6 | — | 超级管理员，拥有全部权限，管理所有资源和用户 |
+| `admin` | global | L5 | 空间管理员 | 平台管理员，管理用户和全局配置，可穿透所有项目 |
+| `project_owner` | project | L4 | 项目负责人 | 管理项目内所有资源和成员，可转让项目 |
+| `project_admin` | project | L3 | **新增** 项目管理员 | 管理成员+资源，但不能删除项目或转让（分担 owner 压力） |
+| `developer` | project | L2.5 | **新增** 开发 | 对标 DataWorks"开发"角色，可创建/修改/运行任务，不可删资源 |
+| `operator` | project | L2 | **新增** 运维 | 对标 DataWorks"运维"角色，可启停/执行/监控，不可创建/修改 |
+| `editor` | project | L1.5 | **保留** 编辑者 | 可创建和修改资源，不可删除、不可发布、不可管成员 |
+| `viewer` | project | L1 | 访客 | 对标 DataWorks"访客"角色，只读所有资源 |
+
+> **设计决策**: DataWorks 专业版有 6 个空间级角色（管理员/开发/运维/访客/安全管理员/模型设计师），DataOS 对齐扩展为 **3 个全局角色 + 6 个项目角色**，覆盖核心场景。`project_admin` 是 project_owner 的"代理"角色——可管理成员但不能删除项目和转让所有权，解决企业场景中项目负责人过于集中的问题。`developer` 和 `operator` 拆分对标 DataWorks 的**开发/运维分离**，满足企业安全要求（开发不能直接运维生产任务）。
 
 #### 权限矩阵 (resource:action)
 
@@ -147,6 +153,408 @@
 | platform:health | ✅ | ✅ | ✅ | ✅ | ✅ |
 | platform:settings | ✅ | ✅ | - | - | - |
 | platform:audit | ✅ | ✅ | - | - | - |
+
+---
+
+### 3.3 开发/生产环境隔离 (v2.0 新增，对齐 DataWorks 标准模式)
+
+> **来源**: DataWorks 专业版的「标准模式工作空间」是 DataOS 项目管理模块最大的功能缺口。标准模式下，工作空间分为**开发环境**和**生产环境**，代码只能在开发环境编辑，通过发布流程部署到生产环境，确保生产数据安全。
+
+#### 3.3.1 设计目标
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     DataOS 双环境架构                         │
+│                                                             │
+│  ┌─────────────────────┐        ┌─────────────────────┐    │
+│  │   开发环境 (DEV)     │        │   生产环境 (PROD)    │    │
+│  │                     │        │                     │    │
+│  │ • 开发数据源         │ 发布   │ • 生产数据源         │    │
+│  │ • 调试任务           │ ────→ │ • 正式调度任务        │    │
+│  │ • 测试 Pipeline      │        │ • 线上 API           │    │
+│  │ • 草稿质量规则        │        │ • 生效告警规则        │    │
+│  │                     │        │                     │    │
+│  │ 角色: developer+    │        │ 角色: operator+     │    │
+│  └─────────────────────┘        └─────────────────────┘    │
+│                                                             │
+│  同一项目下的环境隔离，dev 和 prod 共享项目成员和基础配置       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 3.3.2 数据模型扩展
+
+```sql
+-- projects 表新增环境相关字段
+ALTER TABLE projects ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'simple';
+-- 'simple' = 单环境模式 (当前行为，向后兼容)
+-- 'standard' = 标准模式 (dev + prod 双环境隔离)
+
+ALTER TABLE projects ADD COLUMN default_environment VARCHAR(8) NOT NULL DEFAULT 'dev';
+-- 默认进入的环境 (dev / prod)
+
+-- 新建 project_environments 表 (v2.0)
+CREATE TABLE project_environments (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    name            VARCHAR(16) NOT NULL,           -- 'dev' / 'prod'
+    display_name    VARCHAR(64) NOT NULL,           -- '开发环境' / '生产环境'
+    description     TEXT,
+    is_default      BOOLEAN DEFAULT FALSE,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+
+    UNIQUE KEY uq_project_env (project_id, name),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- 所有项目资源表新增 environment 字段
+ALTER TABLE datasources ADD COLUMN environment VARCHAR(16) NOT NULL DEFAULT 'dev';
+ALTER TABLE pipelines ADD COLUMN environment VARCHAR(16) NOT NULL DEFAULT 'dev';
+ALTER TABLE quality_rules ADD COLUMN environment VARCHAR(16) NOT NULL DEFAULT 'dev';
+ALTER TABLE data_apis ADD COLUMN environment VARCHAR(16) NOT NULL DEFAULT 'dev';
+-- 注意: crawlers 的 environment 字段通过 Crawlab 侧的 tag/label 实现，不在 DataOS 层存储
+```
+
+#### 3.3.3 环境感知的 API 设计
+
+```python
+# GET /api/v1/projects/{id}/datasources?environment=dev
+# GET /api/v1/projects/{id}/datasources?environment=prod
+# 所有资源列表端点统一支持 ?environment= 查询参数，默认值为当前项目的 default_environment
+
+# POST /api/v1/projects/{id}/environments      创建环境 (standard 模式项目)
+# DELETE /api/v1/projects/{id}/environments/{env_id}  删除环境
+
+# POST /api/v1/projects/{id}/publish           发布任务从 dev 到 prod (P1)
+# 参数: { resource_type: "pipeline", resource_id: 123, target_env: "prod" }
+# 校验: 目标环境数据源连接有效、质量规则通过、无循环依赖
+```
+
+#### 3.3.4 环境隔离的权限控制
+
+| 操作 | DEV 环境 | PROD 环境 |
+|------|---------|----------|
+| 创建/修改数据源 | developer+ | project_admin+ |
+| 创建/修改 Pipeline | developer+ | project_admin+ |
+| 启停任务 | developer+ | operator+ |
+| 删除资源 | project_admin+ | project_owner |
+| 发布到生产 | project_admin+ | — |
+| 查看配置 | viewer+ | viewer+ |
+| API 发布 | developer+ | project_admin+ |
+| 质量规则修改 | developer+ | operator+ |
+
+> **设计决策**: 对标 DataWorks，生产环境的写操作权限更高。`developer` 可以在开发环境自由实验，但不能直接修改生产环境的任务配置和删除资源——这需要 `project_admin` 或 `project_owner` 角色。
+
+---
+
+### 3.4 数据域与业务过程建模 (v2.0 新增，对齐 Dataphin OneData)
+
+> **来源**: 阿里云 Dataphin 的核心差异化能力——遵循 OneData 方法论，通过**数据域 (Data Domain)** 和**业务过程 (Business Process)** 对数据进行业务化组织。这是 DataOS 从"技术项目管理"升级为"数据建设治理平台"的关键一步。
+
+#### 3.4.1 概念对齐
+
+```
+OneData 体系:
+┌──────────────────────────────────────────────────────┐
+│  主题域 (Subject Area)                                │
+│  ├── 数据域 (Data Domain)                             │
+│  │   ├── 业务过程 (Business Process)                  │
+│  │   │   ├── 维度表 (Dimension Table)                 │
+│  │   │   ├── 事实表 (Fact Table)                      │
+│  │   │   └── 汇总表 (Aggregate Table)                 │
+│  │   │                                                │
+│  │   └── 数据标准 (Data Standard)                     │
+│  │       ├── 字段标准 (命名、类型、值域)               │
+│  │       ├── 编码规则 (主键、业务键生成)               │
+│  │       └── 指标定义 (原子→派生→复合)                 │
+│  └── ...                                              │
+└──────────────────────────────────────────────────────┘
+```
+
+#### 3.4.2 数据模型
+
+```sql
+-- 数据域表 (v2.0)
+CREATE TABLE data_domains (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    parent_id       INTEGER,                              -- 父子域层级 (自引用)
+    name            VARCHAR(128) NOT NULL,                 -- 域英文名: "trade_domain"
+    display_name    VARCHAR(256) NOT NULL,                 -- 域中文名: "交易域"
+    description     TEXT,
+    owner_id        INTEGER,                              -- 域负责人
+    sort_order      INTEGER DEFAULT 0,                    -- 排序
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+    updated_at      DATETIME NOT NULL DEFAULT (now()),
+
+    UNIQUE KEY uq_domain (project_id, name),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES data_domains(id) ON DELETE SET NULL,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- 业务过程表 (v2.0)
+CREATE TABLE business_processes (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    domain_id       INTEGER NOT NULL,                      -- 所属数据域
+    name            VARCHAR(128) NOT NULL,                 -- 过程英文名: "order_create"
+    display_name    VARCHAR(256) NOT NULL,                 -- 过程中文名: "订单创建"
+    description     TEXT,
+    owner_id        INTEGER,
+    source_tables   JSON,                                  -- 关联源表: ["ods_order", "ods_user"]
+    target_tables   JSON,                                  -- 产出的目标表: ["dwd_trade_order"]
+    schedule_cron   VARCHAR(64),                           -- 调度周期
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+    updated_at      DATETIME NOT NULL DEFAULT (now()),
+
+    UNIQUE KEY uq_process (project_id, name),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (domain_id) REFERENCES data_domains(id) ON DELETE RESTRICT,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- 数据标准表 (v2.0)
+CREATE TABLE data_standards (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    domain_id       INTEGER,                               -- 可选: 归属到特定数据域
+    name            VARCHAR(128) NOT NULL,                 -- 标准名称: "user_id_standard"
+    field_name      VARCHAR(128) NOT NULL,                 -- 字段名称: "user_id"
+    data_type       VARCHAR(64) NOT NULL,                  -- 数据类型: "BIGINT"
+    length          INTEGER,                               -- 字段长度
+    precision       INTEGER,                               -- 精度
+    nullable        BOOLEAN DEFAULT FALSE,
+    default_value   VARCHAR(256),
+    enum_values     JSON,                                  -- 枚举值: ["0","1"]
+    regex_pattern   VARCHAR(512),                          -- 正则校验
+    description     TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+    updated_at      DATETIME NOT NULL DEFAULT (now()),
+
+    UNIQUE KEY uq_standard (project_id, field_name),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (domain_id) REFERENCES data_domains(id) ON DELETE SET NULL
+);
+
+-- 指标定义表 (v2.1)
+CREATE TABLE metrics (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    domain_id       INTEGER,
+    name            VARCHAR(128) NOT NULL,                 -- 指标英文名: "daily_order_amount"
+    display_name    VARCHAR(256) NOT NULL,                 -- 指标中文名: "日订单金额"
+    metric_type     VARCHAR(32) NOT NULL,                  -- 'atomic' (原子) / 'derived' (派生) / 'composite' (复合)
+    formula         TEXT,                                  -- 派生/复合指标的计算公式
+    parent_ids      JSON,                                  -- 父指标 ID 列表
+    data_type       VARCHAR(64) DEFAULT 'DECIMAL',
+    unit            VARCHAR(64),                           -- 单位: "元" / "次" / "%"
+    owner_id        INTEGER,
+    description     TEXT,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+
+    UNIQUE KEY uq_metric (project_id, name),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (domain_id) REFERENCES data_domains(id) ON DELETE SET NULL,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL
+);
+```
+
+#### 3.4.3 数据源与数据域的关联
+
+```sql
+-- 数据源扩展: 关联到数据域
+ALTER TABLE datasources ADD COLUMN domain_id INTEGER;
+ALTER TABLE datasources ADD FOREIGN KEY (domain_id) REFERENCES data_domains(id) ON DELETE SET NULL;
+```
+
+#### 3.4.4 建模 API
+
+```
+POST   /api/v1/projects/{id}/domains                 创建数据域
+GET    /api/v1/projects/{id}/domains                 数据域列表 (支持树形结构)
+PUT    /api/v1/projects/{id}/domains/{did}           更新数据域
+DELETE /api/v1/projects/{id}/domains/{did}           删除数据域 (需无子域和业务过程)
+
+POST   /api/v1/projects/{id}/domains/{did}/processes   创建业务过程
+GET    /api/v1/projects/{id}/processes                 业务过程列表 (按域筛选)
+
+POST   /api/v1/projects/{id}/standards                  创建数据标准
+GET    /api/v1/projects/{id}/standards                  数据标准列表
+
+POST   /api/v1/projects/{id}/metrics                    创建指标
+GET    /api/v1/projects/{id}/metrics                    指标列表 (按类型筛选)
+```
+
+> **实施策略**: 数据域建模是 P2 功能（v2.0），优先级低于环境隔离和通知告警。初期可先实现数据域 + 业务过程两张表的基础 CRUD，指标管理留到 v2.1。
+
+---
+
+### 3.5 通知与告警系统 (v2.0 新增，对标 DataWorks 质量监控)
+
+> **来源**: DataWorks 专业版的数据质量监控包含告警规则配置、通知渠道（短信/邮件/钉钉/Webhook）和阻塞策略。DataOS 当前质量引擎只有规则执行，缺少告警和通知。
+
+#### 3.5.1 通知渠道
+
+```sql
+-- 通知渠道配置 (全局级，admin 管理)
+CREATE TABLE notification_channels (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    name            VARCHAR(64) NOT NULL UNIQUE,          -- 'email' / 'dingtalk' / 'wecom' / 'webhook' / 'sms'
+    display_name    VARCHAR(128) NOT NULL,
+    config          JSON NOT NULL,                         -- SMTP 配置 / Webhook URL / 钉钉机器人 key
+    is_enabled      BOOLEAN DEFAULT TRUE,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+    updated_at      DATETIME NOT NULL DEFAULT (now())
+);
+
+-- 用户通知偏好 (按用户自定义)
+CREATE TABLE user_notification_prefs (
+    user_id         INTEGER NOT NULL,
+    channel_id      INTEGER NOT NULL,
+    target          VARCHAR(256) NOT NULL,                -- 邮箱地址 / 手机号 / 企业微信 userid
+    is_enabled      BOOLEAN DEFAULT TRUE,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+
+    PRIMARY KEY (user_id, channel_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id) REFERENCES notification_channels(id) ON DELETE CASCADE
+);
+```
+
+#### 3.5.2 告警规则
+
+```sql
+-- 告警规则 (项目级)
+CREATE TABLE alert_rules (
+    id              INTEGER PRIMARY KEY AUTO_INCREMENT,
+    project_id      INTEGER NOT NULL,
+    name            VARCHAR(128) NOT NULL,
+    resource_type   VARCHAR(64) NOT NULL,                 -- 'quality_check' / 'pipeline' / 'crawler' / 'datasource'
+    resource_id     INTEGER,                              -- 关联的具体资源 ID
+    trigger_type    VARCHAR(32) NOT NULL,                 -- 'threshold' / 'status_change' / 'execution_timeout' / 'error_rate'
+    trigger_config  JSON NOT NULL,                        -- 触发条件: {"metric": "pass_rate", "op": "<", "value": 0.95}
+    severity        VARCHAR(16) DEFAULT 'warning',        -- 'info' / 'warning' / 'critical' / 'blocking'
+    is_enabled      BOOLEAN DEFAULT TRUE,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+    updated_at      DATETIME NOT NULL DEFAULT (now()),
+
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
+-- 告警规则-通知渠道关联 (M:N)
+CREATE TABLE alert_rule_channels (
+    rule_id         INTEGER NOT NULL,
+    channel_id      INTEGER NOT NULL,
+    PRIMARY KEY (rule_id, channel_id),
+    FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE,
+    FOREIGN KEY (channel_id) REFERENCES notification_channels(id) ON DELETE CASCADE
+);
+
+-- 告警历史
+CREATE TABLE alert_history (
+    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+    rule_id         INTEGER NOT NULL,
+    project_id      INTEGER NOT NULL,
+    resource_type   VARCHAR(64) NOT NULL,
+    resource_id     INTEGER,
+    severity        VARCHAR(16) NOT NULL,
+    message         TEXT NOT NULL,
+    detail          JSON,
+    channels_sent   JSON,                                 -- 记录发送到了哪些渠道
+    is_acknowledged BOOLEAN DEFAULT FALSE,                -- 是否已确认
+    acknowledged_by INTEGER,                              -- 确认人
+    acknowledged_at DATETIME,
+    created_at      DATETIME NOT NULL DEFAULT (now()),
+
+    INDEX idx_alert_time (project_id, created_at),
+    FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+```
+
+#### 3.5.3 通知触发时机
+
+| 触发场景 | 告警类型 | 示例消息 | 默认渠道 |
+|---------|---------|---------|---------|
+| 质量检查失败率 > 阈值 | `quality_check` | "数据源 mysql_prod 的 user_info 表质量检查失败率 12%，超过阈值 5%" | 邮件 + 钉钉 |
+| Pipeline 执行失败 | `pipeline` | "Pipeline user_data_clean 执行失败，错误: std stage null pointer" | 钉钉 |
+| 爬虫任务异常退出 | `crawler` | "爬虫 news_spider 在运行 3h 后异常退出，退出码 137 (OOM)" | 钉钉 |
+| 数据源连接断开 | `datasource` | "数据源 clickhouse_bi 连接失败: Connection refused，已持续 5 分钟" | 邮件 + 短信 |
+| 项目配额接近上限 | `quota` | "项目 smart-factory 数据源数 48/50，接近配额上限" | 邮件 |
+
+#### 3.5.4 通知 API
+
+```
+POST   /api/v1/admin/notification-channels             创建通知渠道 (admin)
+GET    /api/v1/admin/notification-channels             通知渠道列表
+PUT    /api/v1/admin/notification-channels/{id}        更新渠道配置
+POST   /api/v1/admin/notification-channels/{id}/test   测试通知渠道
+
+GET    /api/v1/users/me/notification-prefs             获取当前用户通知偏好
+PUT    /api/v1/users/me/notification-prefs             更新通知偏好
+
+GET    /api/v1/projects/{id}/alert-rules               项目告警规则列表
+POST   /api/v1/projects/{id}/alert-rules               创建告警规则
+PUT    /api/v1/projects/{id}/alert-rules/{rid}         更新告警规则
+DELETE /api/v1/projects/{id}/alert-rules/{rid}         删除告警规则
+
+GET    /api/v1/projects/{id}/alert-history              告警历史 (支持时间范围+级别筛选)
+POST   /api/v1/projects/{id}/alert-history/{aid}/ack   确认告警
+```
+
+---
+
+### 3.6 资源配额与用量监控 (v2.0 增强)
+
+> **来源**: DataWorks 专业版的资源管理有配额限制，防止单项目资源滥用。DataOS 已有 `project_quotas` 表设计，本节补充配额检查的 middleware 和用量展示 API。
+
+```python
+# app/core/quota.py — 配额检查中间件
+
+from functools import wraps
+from fastapi import HTTPException
+
+class QuotaExceededError(HTTPException):
+    """资源配额超限异常."""
+    def __init__(self, resource: str, current: int, limit: int):
+        super().__init__(
+            status_code=429,
+            detail=f"项目资源配额不足: {resource} 已达 {current}/{limit}"
+        )
+
+async def check_quota(project_id: int, resource_type: str, db: AsyncSession):
+    """创建资源前检查配额 — 使用方式: await check_quota(project.id, 'datasource', db)."""
+    quota = await db.get(ProjectQuota, project_id)
+    if not quota:
+        return  # 未配置配额 = 不限制
+
+    current_counts = {
+        "datasource": await db.scalar(
+            select(func.count(DataSource.id)).where(DataSource.project_id == project_id)
+        ),
+        "crawler": await db.scalar(
+            select(func.count(Crawler.id)).where(Crawler.project_id == project_id)
+        ),
+        "api": await db.scalar(
+            select(func.count(DataApi.id)).where(DataApi.project_id == project_id)
+        ),
+        "pipeline": await db.scalar(
+            select(func.count(Pipeline.id)).where(Pipeline.project_id == project_id)
+        ),
+        "member": await db.scalar(
+            select(func.count(ProjectMember.id)).where(ProjectMember.project_id == project_id)
+        ),
+        "quality_rule": await db.scalar(
+            select(func.count(QualityRule.id)).where(QualityRule.project_id == project_id)
+        ),
+    }
+
+    limit = getattr(quota, f"max_{resource_type}s", None)
+    current = current_counts.get(resource_type, 0)
+
+    if limit is not None and current >= limit:
+        raise QuotaExceededError(resource=resource_type, current=current, limit=limit)
+```
 
 ---
 
@@ -265,13 +673,16 @@ CREATE TABLE roles (
     created_at    DATETIME NOT NULL DEFAULT (now())
 );
 
--- 预置角色
+-- 预置角色 (v2.0 扩展为 8 个系统角色)
 INSERT INTO roles (name, display_name, description, scope, is_system) VALUES
-('super_admin',   '超级管理员',   '平台最高权限，管理所有资源和用户',         'global',  TRUE),
-('admin',         '平台管理员',   '管理用户和全局配置',                     'global',  TRUE),
-('project_owner', '项目负责人',   '管理项目内所有资源和成员',               'project', TRUE),
-('editor',        '编辑者',       '创建和修改数据源、爬虫、质量规则、API',  'project', TRUE),
-('viewer',        '查看者',       '只读查看项目内所有资源',                 'project', TRUE);
+('super_admin',   '超级管理员',   '平台最高权限，管理所有资源和用户',                    'global',  TRUE),
+('admin',         '平台管理员',   '管理用户和全局配置，可穿透所有项目',                  'global',  TRUE),
+('project_owner', '项目负责人',   '项目最高权限，管理所有资源和成员，可转让和删除项目',   'project', TRUE),
+('project_admin', '项目管理员',   '管理项目成员和资源，不可删除项目和转让所有权',        'project', TRUE),
+('developer',     '开发者',       '创建/修改/运行数据开发任务，不可删除资源和发布上线',  'project', TRUE),
+('operator',      '运维者',       '启停/执行/监控任务和数据源，不可创建和修改任务',      'project', TRUE),
+('editor',        '编辑者',       '创建和修改数据源配置，不可删除和运行任务',            'project', TRUE),
+('viewer',        '查看者',       '只读查看项目内所有资源',                             'project', TRUE);
 ```
 
 #### permissions (新增) — 权限表
@@ -764,10 +1175,13 @@ oauth2_scheme = HTTPBearer()
 # ============================================================
 ROLE_LEVEL = {
     "viewer": 1,
-    "editor": 2,
-    "project_owner": 3,
-    "admin": 4,
-    "super_admin": 5,
+    "editor": 1.5,
+    "operator": 2,
+    "developer": 2.5,
+    "project_admin": 3,
+    "project_owner": 4,
+    "admin": 5,
+    "super_admin": 6,
 }
 GLOBAL_ADMIN_ROLES = {"super_admin", "admin"}  # 全局穿透所有项目
 
@@ -1440,51 +1854,121 @@ function filterMenuByPermission(menuItems: MenuItem[], permissions: string[]) {
 
 ## 八、实施计划
 
-### 8.1 开发任务
+### 8.1 开发任务 (v2.0 更新)
 
-| 序号 | 功能 | 优先级 | 工作量 | 依赖 |
-|------|------|:---:|--------|------|
-| 1 | Role + Permission + RolePermission 模型 + seed SQL | P0 | 0.3天 | — |
-| 2 | ProjectMember 改造 (role 字符串 → role_id FK) | P0 | 0.2天 | #1 |
-| 3 | UserRole 模型 (全局角色) | P0 | 0.1天 | #1 |
-| 4 | 权限守卫 (require_permission / require_project_role) | P0 | 0.5天 | #1-3 |
-| 5 | **P0 修复: require_project_role 全局角色穿透** | P0 | 0.1天 | #4 |
-| 6 | **P0 修复: 权限 Redis 缓存 (PermissionCache)** | P0 | 0.3天 | #4 |
-| 7 | 项目转让 API (transfer ownership) | P0 | 0.2天 | #4 |
-| 8 | roles/permissions CRUD API | P0 | 0.3天 | #1 |
-| 9 | 用户权限查询 API (get_user_permissions + login 增强) | P1 | 0.3天 | #1-5 |
-| 10 | 改造 projects API (创建/成员管理/权限校验) | P1 | 0.5天 | #1-7 |
-| 11 | 改造 datasources API (权限校验 + 配置加密) | P1 | 0.3天 | #4, #19 |
-| 12 | **P1 新增: AuditLog 模型 + 审计中间件** | P1 | 0.5天 | #1 |
-| 13 | 审计日志查询 API | P1 | 0.2天 | #12 |
-| 14 | 项目状态机实现 (freeze/archive/suspend) | P1 | 0.3天 | #10 |
-| 15 | 数据安全等级字段 + 校验 | P1 | 0.1天 | — |
-| 16 | 项目列表页 + 成员管理页前端 | P1 | 0.5天 | #1-10 |
-| 17 | 角色权限管理页前端 (admin only) | P2 | 0.3天 | #1-8 |
-| 18 | **P2 新增: usePermission Hook + 前端权限驱动 UI** | P2 | 0.2天 | #16 |
-| 19 | **P1 新增: 数据源密码加密 (crypto.py)** | P1 | 0.2天 | — |
-| 20 | 项目配额表 + API | P2 | 0.3天 | #10 |
-| 21 | 权限失效触发器 (角色变更 → 清理缓存) | P2 | 0.2天 | #6 |
-| 22 | 集成测试 + 权限矩阵验证 | P2 | 0.5天 | #1-21 |
-| | **合计** | | **~5.8 天** | |
+| 序号 | 功能 | 优先级 | 工作量 | 依赖 | 版本 |
+|------|------|:---:|--------|------|:---:|
+| **Phase 0: 当前已有 (代码已完成)** |||||
+| 0.1 | Role + Permission + RolePermission 模型 + seed | ✅ 完成 | — | — | v1.0 |
+| 0.2 | ProjectMember 改造 (role_id FK) | ✅ 完成 | — | — | v1.0 |
+| 0.3 | UserRole 模型 (全局角色) | ✅ 完成 | — | — | v1.0 |
+| 0.4 | require_permission / require_project_role 守卫 | ✅ 完成 | — | — | v1.0 |
+| 0.5 | 全局角色穿透 (admin bypass) | ✅ 完成 | — | — | v1.0 |
+| 0.6 | 项目 CRUD + 成员管理 API | ✅ 完成 | — | — | v1.0 |
+| 0.7 | 项目转让 API | ✅ 完成 | — | — | v1.0 |
+| 0.8 | 项目 freeze/unfreeze API | ✅ 完成 | — | — | v1.0 |
+| 0.9 | 审计日志基础 (手动记录) | ✅ 完成 | — | — | v1.0 |
+| **Phase 1: 核心补强 (v1.5)** |||||
+| 1.1 | **P0 修复: 权限 Redis 缓存 (PermissionCache)** | P0 | 0.3天 | 0.4 | v1.5 |
+| 1.2 | **P0 修复: 项目列表分页 (服务端)** | P0 | 0.2天 | 0.6 | v1.5 |
+| 1.3 | 角色扩充: 新增 project_admin / developer / operator | P0 | 0.3天 | 0.1 | v1.5 |
+| 1.4 | 更新权限矩阵: 新角色的 permission 绑定 | P0 | 0.2天 | 1.3 | v1.5 |
+| 1.5 | 用户搜索/自动完成 API (成员管理用) | P1 | 0.2天 | — | v1.5 |
+| 1.6 | Token 刷新机制 (refresh token) | P1 | 0.3天 | — | v1.5 |
+| 1.7 | 审计日志中间件 (AOP 自动记录) | P1 | 0.5天 | 0.9 | v1.5 |
+| 1.8 | 审计日志查询 API (分页+筛选) | P1 | 0.2天 | 1.7 | v1.5 |
+| 1.9 | 数据源密码加密 (crypto.py Fernet) | P1 | 0.2天 | — | v1.5 |
+| 1.10 | 前端用户搜索组件 (Select+Search) | P1 | 0.2天 | 1.5 | v1.5 |
+| 1.11 | 前端角色管理页 (admin only) | P1 | 0.3天 | 1.3 | v1.5 |
+| **Phase 2: 环境隔离 + 告警 (v2.0)** |||||
+| 2.1 | 项目 modes (simple/standard) 字段 | P1 | 0.1天 | — | v2.0 |
+| 2.2 | project_environments 表 + CRUD API | P1 | 0.3天 | 2.1 | v2.0 |
+| 2.3 | 资源表增加 environment 字段 | P1 | 0.2天 | 2.2 | v2.0 |
+| 2.4 | 环境感知的资源列表查询 (?environment=) | P1 | 0.3天 | 2.3 | v2.0 |
+| 2.5 | 发布流程 (dev→prod publish) | P1 | 0.5天 | 2.4 | v2.0 |
+| 2.6 | 通知渠道表 + CRUD API | P1 | 0.3天 | — | v2.0 |
+| 2.7 | 告警规则表 + CRUD API | P1 | 0.3天 | 2.6 | v2.0 |
+| 2.8 | 告警引擎 (规则检查+消息发送) | P1 | 0.5天 | 2.7 | v2.0 |
+| 2.9 | 告警历史表 + 确认 API | P1 | 0.2天 | 2.8 | v2.0 |
+| 2.10 | 项目配额 middleware (check_quota) | P2 | 0.3天 | 0.6 | v2.0 |
+| 2.11 | 前端环境切换器组件 | P2 | 0.2天 | 2.4 | v2.0 |
+| 2.12 | 前端告警规则配置页 | P2 | 0.3天 | 2.7 | v2.0 |
+| **Phase 3: 数据建模 (v2.1)** |||||
+| 3.1 | data_domains 表 + 树形 CRUD API | P2 | 0.3天 | — | v2.1 |
+| 3.2 | business_processes 表 + CRUD API | P2 | 0.2天 | 3.1 | v2.1 |
+| 3.3 | data_standards 表 + CRUD API | P2 | 0.3天 | 3.1 | v2.1 |
+| 3.4 | 数据源关联数据域 (datasources.domain_id) | P2 | 0.1天 | 3.1 | v2.1 |
+| 3.5 | metrics 表 (原子/派生/复合) | P3 | 0.3天 | 3.1 | v2.1 |
+| 3.6 | 前端数据域管理页 (树形+拖拽) | P3 | 0.5天 | 3.1 | v2.1 |
+| 3.7 | 前端数据标准管理页 | P3 | 0.3天 | 3.3 | v2.1 |
+| **集成与测试** |||||
+| T.1 | 权限矩阵集成测试 (pytest) | P1 | 0.3天 | 1.4 | v1.5 |
+| T.2 | 环境隔离 E2E 测试 (Playwright) | P1 | 0.3天 | 2.5 | v2.0 |
+| T.3 | 告警规则集成测试 | P2 | 0.2天 | 2.8 | v2.0 |
+| | **Phase 1 小计** | | **~2.9 天** | | |
+| | **Phase 2 小计** | | **~3.5 天** | | |
+| | **Phase 3 小计** | | **~2.0 天** | | |
+| | **总计** | | **~8.4 天** | | |
 
-### 8.2 新增文件清单
+### 8.2 新增/修改文件清单 (v2.0)
 
-| 文件 | 说明 | 优先级 |
+| 文件 | 说明 | 版本 |
 |------|------|:---:|
-| `app/models/role.py` | Role + Permission + RolePermission 模型 | P0 |
-| `app/models/project_member.py` | ProjectMember + UserRole 模型 | P0 |
-| `app/models/audit_log.py` | AuditLog 模型 (P1 合规) | P1 |
-| `app/models/project_quota.py` | ProjectQuota 模型 (P2) | P2 |
-| `app/core/deps.py` | get_current_user / require_permission / require_project_role / PermissionCache | P0 |
-| `app/core/crypto.py` | 敏感字段加密/解密 (Fernet) | P1 |
-| `app/api/permissions.py` | 角色和权限管理 CRUD API | P0 |
-| `app/api/audit.py` | 审计日志查询 API | P1 |
-| `app/middleware/audit.py` | 审计日志自动记录中间件 | P1 |
-| `platform/frontend/src/hooks/usePermission.ts` | 前端权限 Hook | P2 |
-| `components/mysql/init/02-seed-rbac.sql` | 预置角色 + 权限 + 初始 admin | P0 |
+| `app/models/role.py` | Role + Permission + RolePermission 模型 | ✅ v1.0 |
+| `app/models/project_member.py` | ProjectMember + UserRole 模型 | ✅ v1.0 |
+| `app/models/audit_log.py` | AuditLog 模型 | ✅ v1.0 |
+| `app/models/project_quota.py` | ProjectQuota 模型 | v2.0 |
+| `app/models/project_environment.py` | **新增** ProjectEnvironment 模型 | v2.0 |
+| `app/models/data_domain.py` | **新增** DataDomain + BusinessProcess 模型 | v2.1 |
+| `app/models/data_standard.py` | **新增** DataStandard 模型 | v2.1 |
+| `app/models/metric.py` | **新增** Metric 模型 | v2.1 |
+| `app/models/notification.py` | **新增** NotificationChannel + UserNotificationPref 模型 | v2.0 |
+| `app/models/alert.py` | **新增** AlertRule + AlertHistory 模型 | v2.0 |
+| `app/core/deps.py` | get_current_user / require_permission / require_project_role / PermissionCache | ✅ v1.0 |
+| `app/core/crypto.py` | 敏感字段加密/解密 (Fernet) | v1.5 |
+| `app/core/quota.py` | **新增** 配额检查 middleware | v2.0 |
+| `app/api/projects.py` | 项目 CRUD + 成员管理 + 转让 + 环境管理 | v1.0+v2.0 |
+| `app/api/permissions.py` | 角色和权限管理 CRUD API | ✅ v1.0 |
+| `app/api/audit.py` | 审计日志查询 API | v1.5 |
+| `app/api/notifications.py` | **新增** 通知渠道和告警规则 API | v2.0 |
+| `app/api/domains.py` | **新增** 数据域和业务过程 API | v2.1 |
+| `app/middleware/audit.py` | 审计日志自动记录中间件 | v1.5 |
+| `app/middleware/alert.py` | **新增** 告警引擎 (规则检查+消息发送) | v2.0 |
+| `app/tasks/alert_checker.py` | **新增** 后台告警检查定时任务 | v2.0 |
+| `platform/frontend/src/hooks/usePermission.ts` | 前端权限 Hook | ✅ v1.0 |
+| `platform/frontend/src/pages/ProjectSettings.tsx` | 项目设置页 (成员+环境+告警) | v1.5 |
+| `platform/frontend/src/pages/ProjectDomains.tsx` | **新增** 数据域管理页 | v2.1 |
+| `platform/frontend/src/pages/AlertRules.tsx` | **新增** 告警规则配置页 | v2.0 |
+| `platform/frontend/src/components/UserSelect.tsx` | **新增** 用户搜索选择组件 | v1.5 |
+| `platform/frontend/src/components/EnvSwitcher.tsx` | **新增** 环境切换器组件 | v2.0 |
+| `components/mysql/init/02-seed-rbac.sql` | 预置 8 角色 + 37 权限 + 初始 admin | v1.0+v2.0 |
+| `components/mysql/migrations/` | **新增** 数据库迁移脚本目录 | v1.5 |
 
-### 8.3 P0 修复亮点总结
+### 8.3 大厂对齐设计决策总结 (v2.0)
+
+> 每个设计决策都标注了来源平台和原因，确保不是"为了功能而功能"。
+
+| # | 设计决策 | 对齐来源 | 决策原因 |
+|---|---------|---------|---------|
+| 1 | **双范围 RBAC + 权限并集** | DataOS 原创 | DataWorks/Dataphin 的权限是登录时固化，DataOS 每次请求动态计算，角色变更即时生效，更适合自建部署场景 |
+| 2 | **8 角色体系 (3全局+6项目)** | DataWorks 专业版 | DataWorks 有空间管理员/开发/运维/访客/安全管理员/模型设计师。DataOS 先对齐核心角色，安全管理员和模型设计师留到 v2.2 |
+| 3 | **project_admin 角色** | Dataphin 代理负责人 | Dataphin 有"项目负责人"和"项目管理员"的区分。企业场景中 Owner 通常是业务负责人，日常管理需要 project_admin 代理 |
+| 4 | **developer/operator 拆分** | DataWorks 开发运维分离 | DataWorks 标准模式中，开发角色只能在 DEV 环境编辑，运维角色负责 PROD 环境的启停和监控。DataOS 对齐此模型 |
+| 5 | **simple/standard 双模式** | DataWorks 简单/标准模式 | DataWorks 基础版只有简单模式(单环境)，专业版才有标准模式(双环境)。DataOS 也提供两种模式，向后兼容 |
+| 6 | **环境隔离 (dev/prod)** | DataWorks 标准模式+DataLeap | DataWorks 的标准模式工作空间是最核心的差异化能力，DataLeap 也有类似的双环境设计。这是 DataOS 当前最大的功能缺口 |
+| 7 | **数据域+业务过程建模** | Dataphin OneData | Dataphin 的核心方法论——先建模再开发。DataOS 目前的"先连接数据源再做处理"缺少标准化环节 |
+| 8 | **发布流程 (dev→prod)** | DataWorks 发布中心 | 发布时校验目标环境连接+质量规则+依赖，对标 DataWorks 的发布前检查 |
+| 9 | **数据标准管理** | Dataphin 数据标准 | 字段命名、类型、值域的统一标准化，是 DataOS 从"ETL 工具"升级为"治理平台"的标志 |
+| 10 | **指标管理 (原子→派生→复合)** | Dataphin 指标字典 | 指标唯一归属+可追溯，是企业级数据治理的核心能力 |
+| 11 | **通知告警+多通道** | DataWorks 质量监控+WeData | DataWorks 支持邮件/短信/钉钉/Webhook 四通道告警。DataOS 对齐此设计 |
+| 12 | **Fernet 配置加密+API脱敏** | DataWorks KMS 集成 | DataWorks 用阿里云 KMS 加密，DataOS 自建部署用 Fernet(AES-128)，设计思路一致 |
+| 13 | **全量审计日志+diff** | DataWorks 操作审计+DataLeap | 所有大厂平台都有审计日志。DataOS 多做了 before/after diff 记录，在自建场景中更有用 |
+| 14 | **服务端分页+搜索** | DataWorks 项目管理列表 | DataOS 当前是客户端分页，已有代码对所有项目做全量查询。改为服务端分页减少传输量 |
+| 15 | **资源配额 middleware** | DataWorks 配额管理 | DataWorks 专业版有资源组和配额限制。DataOS 的 project_quotas 表设计对齐此功能 |
+| 16 | **Token 刷新机制** | 行业标配 | DataOS 当前 JWT 有效期8小时无刷新，补充 refresh token 是安全基础要求 |
+| 17 | **组件代理统一抽象 (ComponentClient)** | DataOS 原创 | 所有外部 OSS (DolphinScheduler/OpenMetadata/SeaTunnel) 通过统一 Client 类访问，可换可替换 |
+
+### 8.4 P0 修复亮点总结
 
 | # | 问题 | 修复方式 | 所在章节 |
 |---|------|---------|---------|
