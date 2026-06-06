@@ -90,6 +90,11 @@ export default function ProjectDetail() {
   const [dsCreateForm] = Form.useForm()
   const [dsCreating, setDsCreating] = useState(false)
 
+  // resource counts — P2: 从持久化 API 获取真实数据
+  const [crawlerCount, setCrawlerCount] = useState(0)
+  const [qualityRuleCount, setQualityRuleCount] = useState(0)
+  const [pipelineCount, setPipelineCount] = useState(0)
+
   // audit
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
 
@@ -136,11 +141,37 @@ export default function ProjectDetail() {
     } catch { /* ignore */ }
   }, [])
 
+  // P2: 从持久化 API 获取项目资源计数
+  const fetchCrawlerCount = useCallback(async () => {
+    try {
+      const resp = await apiClient.get('/crawlers', { params: { project_id: projectId, page_size: 1 } })
+      setCrawlerCount(resp.data.total || resp.data.items?.length || 0)
+    } catch { /* ignore */ }
+  }, [projectId])
+
+  const fetchQualityRuleCount = useCallback(async () => {
+    try {
+      const resp = await apiClient.get('/quality/rules', { params: { project_id: projectId } })
+      setQualityRuleCount(resp.data.length || 0)
+    } catch { /* ignore */ }
+  }, [projectId])
+
+  const fetchPipelineCount = useCallback(async () => {
+    try {
+      const resp = await apiClient.get('/cleaning/pipelines', { params: { project_id: projectId } })
+      setPipelineCount(resp.data.total || resp.data.items?.length || 0)
+    } catch { /* ignore */ }
+  }, [projectId])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchProject(), fetchMembers(), fetchDatasources(), fetchAuditLogs(), fetchSourceTypes()])
+    await Promise.all([
+      fetchProject(), fetchMembers(), fetchDatasources(), fetchAuditLogs(),
+      fetchSourceTypes(), fetchCrawlerCount(), fetchQualityRuleCount(), fetchPipelineCount(),
+    ])
     setLoading(false)
-  }, [fetchProject, fetchMembers, fetchDatasources, fetchAuditLogs, fetchSourceTypes])
+  }, [fetchProject, fetchMembers, fetchDatasources, fetchAuditLogs, fetchSourceTypes,
+      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelineCount])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -333,9 +364,9 @@ export default function ProjectDetail() {
 
   const resourceStats = [
     { title: '数据源', count: datasources.length, icon: <DatabaseOutlined />, color: '#1677ff', permission: 'datasource:read', path: '/datasources' },
-    { title: '爬虫任务', count: 0, icon: <BugOutlined />, color: '#52c41a', permission: 'crawler:read', path: '/crawlers' },
-    { title: '质量规则', count: 0, icon: <SafetyCertificateOutlined />, color: '#faad14', permission: 'quality:read', path: '/quality' },
-    { title: '数据 API', count: 0, icon: <ApiOutlined />, color: '#eb2f96', permission: 'api:read', path: '/data-service' },
+    { title: '爬虫任务', count: crawlerCount, icon: <BugOutlined />, color: '#52c41a', permission: 'crawler:read', path: '/crawlers' },
+    { title: '质量规则', count: qualityRuleCount, icon: <SafetyCertificateOutlined />, color: '#faad14', permission: 'quality:read', path: '/quality' },
+    { title: 'Pipeline', count: pipelineCount, icon: <ApiOutlined />, color: '#eb2f96', permission: 'api:read', path: '/data-service' },
   ]
 
   const tabs = [
