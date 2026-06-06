@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer } from 'antd'
 import {
   PlusOutlined, ReloadOutlined, DatabaseOutlined, ApiOutlined,
-  SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined,
+  SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined, HistoryOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../utils/api'
@@ -50,6 +50,11 @@ export default function DataSources() {
   const [previewData, setPreviewData] = useState<Record<string, unknown>[]>([])
   const [previewCols, setPreviewCols] = useState<string[]>([])
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  // 同步历史
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyDsId, setHistoryDsId] = useState<number | null>(null)
+  const [syncHistory, setSyncHistory] = useState<Record<string, unknown>[]>([])
 
   const fetchData = async () => {
     setLoading(true)
@@ -144,6 +149,16 @@ export default function DataSources() {
     finally { setPreviewLoading(false) }
   }
 
+  // ---- 同步历史 ----
+  const handleOpenHistory = async (dsId: number) => {
+    setHistoryDsId(dsId)
+    setHistoryOpen(true)
+    try {
+      const res = await apiClient.get(`/datasources/${dsId}/sync-history`)
+      setSyncHistory(res.data)
+    } catch { message.error('获取同步历史失败') }
+  }
+
   // ---- 删除 ----
   const handleDelete = async (id: number) => {
     try {
@@ -182,6 +197,10 @@ export default function DataSources() {
           <Button size="small" icon={<SyncOutlined />}
             onClick={() => handleOpenSync(record.id)}>
             同步
+          </Button>
+          <Button size="small" icon={<HistoryOutlined />}
+            onClick={() => handleOpenHistory(record.id)}>
+            历史
           </Button>
           {can('datasource:delete') && (
             <Popconfirm title="确认删除该数据源?" onConfirm={() => handleDelete(record.id)}>
@@ -274,6 +293,26 @@ export default function DataSources() {
           </div>
         )}
       </Modal>
+
+      {/* 同步历史抽屉 */}
+      <Drawer title="同步历史" open={historyOpen}
+        onClose={() => setHistoryOpen(false)} width={600}>
+        <Table columns={[
+          { title: '表名', dataIndex: 'table_name', width: 100 },
+          { title: '状态', dataIndex: 'status', width: 80,
+            render: (s: string) => <Tag color={s === 'success' ? 'green' : 'red'}>{s}</Tag> },
+          { title: '行数', dataIndex: 'total_rows', width: 60 },
+          { title: '大小', dataIndex: 'total_bytes', width: 80,
+            render: (v: number) => v ? `${(v / 1024).toFixed(1)} KB` : '-' },
+          { title: '路径', dataIndex: 'storage_path', ellipsis: true,
+            render: (v: string) => v ? <Text code style={{ fontSize: 11 }}>{v}</Text> : '-' },
+          { title: '时间', dataIndex: 'created_at', width: 140,
+            render: (v: string) => v ? new Date(v).toLocaleString() : '-' },
+        ]}
+        dataSource={syncHistory} rowKey="id" size="small"
+        pagination={false}
+        locale={{ emptyText: '暂无同步记录' }} />
+      </Drawer>
 
       {/* 预览抽屉 */}
       <Drawer title="数据预览 (前 100 行)" open={previewOpen}
