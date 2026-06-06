@@ -298,8 +298,9 @@ async def run_pipeline(
         pipeline_version=pipeline_version,
     )
 
-    # 🔗 清洗结果写回 MinIO (Silver) + 更新 Pipeline 记录
+    # 🔗 清洗结果写入 MinIO (Silver) + PostgreSQL (Gold) + 更新 Pipeline
     output_rows = 0
+    pg_result = None
     if pl and pl.datasource_id and pl.source_table:
         try:
             from app.core.minio_client import write_dataframe, get_silver_path
@@ -308,24 +309,39 @@ async def run_pipeline(
             output_df = df.copy()
             output_rows = len(output_df)
 
-            # 写入 MinIO Silver
+            # ── MinIO Silver ──
             silver_prefix = get_silver_path(pl.project_id, pl.name)
             silver_key = f"{silver_prefix}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
             write_dataframe(output_df, settings.MINIO_BUCKET_SILVER, silver_key)
 
+            # ── PostgreSQL Gold ──
+            target_table = pl.target_table or f"clean_{pl.name.lower().replace(' ', '_')}"
+            try:
+                from sqlalchemy import create_engine as sync_create_engine
+                pg_engine = sync_create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 10})
+                output_df.to_sql(target_table, pg_engine, if_exists="replace", index=False)
+                pg_engine.dispose()
+                pg_result = {"table": target_table, "engine": "postgresql", "rows": output_rows}
+            except Exception as pg_err:
+                pg_result = {"table": target_table, "engine": "postgresql", "error": str(pg_err)}
+
             # 更新 Pipeline 记录
             pl.last_run_at = pd.Timestamp.now()
             pl.last_output_rows = output_rows
+            pl.target_table = target_table
             await db.commit()
+
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Pipeline 结果写入 MinIO 失败: {e}")
+            logging.getLogger(__name__).warning(f"Pipeline 结果写入失败: {e}")
 
     result = report.to_dict()
     result["output_storage"] = {
         "rows": output_rows,
         "pipeline_id": pl.id if pl else None,
         "datasource_id": pl.datasource_id if pl else None,
+        "minio_silver": f"{settings.MINIO_BUCKET_SILVER}/{silver_key}" if pl else None,
+        "postgresql": pg_result,
     }
     return result
 
