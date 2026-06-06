@@ -291,3 +291,11 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+
+
+# 健康检查 (API v1 前缀，适配前端 /api/* Vite proxy)
+@app.get("/api/v1/health")
+async def api_v1_health():
+    """API v1 健康检查 — 代理前端 /api/* 路径."""
+    from app.api.health import health_check
+    return await health_check()

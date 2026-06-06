@@ -30,16 +30,10 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const resp = await apiClient.get('/../health') // /health is at root level
+        const resp = await apiClient.get('/health')
         setComponents(resp.data.components || [])
       } catch {
-        // Fallback: use direct health endpoint
-        try {
-          const resp = await fetch('/api/../health').then(r => r.json())
-          setComponents(resp.components || [])
-        } catch {
-          // Keep empty
-        }
+        // Keep empty on error
       } finally {
         setLoading(false)
       }
