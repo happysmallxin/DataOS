@@ -166,7 +166,8 @@ async def seed_rbac(session):
     await session.flush()
 
     # 3. 创建角色-权限关联 (幂等)
-    if existing_roles and existing_perms:
+    # ✅ 使用 role_map/perm_map (已包含新创建的数据), 而非 existing_roles/existing_perms (首次运行时空列表)
+    if role_map and perm_map:
         existing_rp = (await session.execute(
             sa_select(RolePermission)
         )).scalars().all()

@@ -1,7 +1,7 @@
 /**
  * 登录页 — JWT 认证入口.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Form, Input, Button, Card, Typography, Alert, message } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
@@ -16,11 +16,29 @@ export default function Login() {
   const location = useLocation()
   const { login, isAuthenticated } = useAuthStore()
 
-  // 已登录则跳转首页
+  // ✅ useEffect 中跳转 (非 render 阶段), 确保 store 状态已完全提交
+  useEffect(() => {
+    if (isAuthenticated) {
+      const from = (location.state as any)?.from?.pathname || '/'
+      navigate(from, { replace: true })
+    }
+  }, [isAuthenticated, navigate, location.state])
+
+  // 已登录则只显示 loading, 等待 useEffect 跳转
   if (isAuthenticated) {
-    const from = (location.state as any)?.from?.pathname || '/'
-    navigate(from, { replace: true })
-    return null
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      }}>
+        <Card style={{ textAlign: 'center' }}>
+          <Text type="secondary">已登录，正在跳转...</Text>
+        </Card>
+      </div>
+    )
   }
 
   const onFinish = async (values: { username: string; password: string }) => {
@@ -29,8 +47,7 @@ export default function Login() {
     try {
       await login(values.username, values.password)
       message.success('登录成功')
-      const from = (location.state as any)?.from?.pathname || '/'
-      navigate(from, { replace: true })
+      // navigate 由 useEffect 处理 (检测 isAuthenticated 变化后跳转)
     } catch (err: any) {
       const detail = err.response?.data?.detail || '登录失败，请检查用户名和密码'
       setError(detail)
