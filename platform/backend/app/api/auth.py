@@ -16,6 +16,7 @@ from app.api.deps import (
 from app.api.schemas import (
     LoginRequest,
     TokenResponse,
+    RefreshTokenRequest,
     LoginUserInfo,
     UserInfo,
 )
@@ -23,8 +24,10 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
+    create_refresh_token,
     verify_password,
     hash_password,
+    decode_refresh_token,
 )
 from app.models.user import User
 from app.models.project import Project
@@ -53,6 +56,9 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
 
     access_token = create_access_token(
+        data={"sub": str(user.id), "username": user.username}
+    )
+    refresh_token = create_refresh_token(
         data={"sub": str(user.id), "username": user.username}
     )
 
@@ -87,6 +93,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     return TokenResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         user=LoginUserInfo(
             id=user.id,
@@ -107,6 +114,78 @@ async def get_current_user_info(
 ):
     """获取当前登录用户信息."""
     return current_user
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_access_token(
+    req: RefreshTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """刷新 access token (v1.5 新增 — Token Rotation).
+
+    使用 refresh token 换取新的 access token + refresh token.
+    旧 refresh token 在成功使用后失效 (rotation 防重放).
+    """
+    payload = decode_refresh_token(req.refresh_token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token 无效或已过期",
+        )
+
+    user_id = int(payload.get("sub", 0))
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="用户不存在或已被禁用",
+        )
+
+    # 签发新 token (rotation)
+    token_data = {"sub": str(user.id), "username": user.username}
+    new_access_token = create_access_token(data=token_data)
+    new_refresh_token = create_refresh_token(data=token_data)
+
+    # 返回与登录相同的格式
+    global_roles = await get_user_global_roles(user.id, db)
+    permissions = await get_user_permissions(user.id, db)
+    is_global_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
+
+    if is_global_admin:
+        proj_result = await db.execute(
+            select(Project).where(Project.status == "active")
+        )
+        accessible_projects = [
+            {"id": p.id, "name": p.name, "display_name": p.display_name, "role": "admin"}
+            for p in proj_result.scalars().all()
+        ]
+    else:
+        proj_result = await db.execute(
+            select(Project, Role.name)
+            .join(ProjectMember, ProjectMember.project_id == Project.id)
+            .join(Role, Role.id == ProjectMember.role_id)
+            .where(ProjectMember.user_id == user.id, Project.status == "active")
+        )
+        accessible_projects = [
+            {"id": p.id, "name": p.name, "display_name": p.display_name, "role": role_name}
+            for p, role_name in proj_result.all()
+        ]
+
+    return TokenResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        expires_in=settings.JWT_EXPIRE_MINUTES * 60,
+        user=LoginUserInfo(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            display_name=user.display_name,
+            is_superuser=user.is_superuser,
+            global_roles=[r.name for r in global_roles],
+            permissions=sorted(permissions),
+            accessible_projects=accessible_projects,
+        ),
+    )
 
 
 @router.post("/register", response_model=UserInfo, status_code=status.HTTP_201_CREATED)

@@ -30,11 +30,16 @@ import app.models.audit_log         # noqa: F401
 # 种子数据: 预置角色和权限
 # ============================================================
 SEED_ROLES = [
-    {"name": "super_admin",   "display_name": "超级管理员", "description": "平台最高权限，管理所有资源和用户",         "scope": "global",  "is_system": True},
-    {"name": "admin",         "display_name": "平台管理员", "description": "管理用户和全局配置",                       "scope": "global",  "is_system": True},
-    {"name": "project_owner", "display_name": "项目负责人", "description": "管理项目内所有资源和成员",                  "scope": "project", "is_system": True},
-    {"name": "editor",        "display_name": "编辑者",     "description": "创建和修改数据源、爬虫、质量规则、API",    "scope": "project", "is_system": True},
-    {"name": "viewer",        "display_name": "查看者",     "description": "只读查看项目内所有资源",                   "scope": "project", "is_system": True},
+    # 全局角色
+    {"name": "super_admin",   "display_name": "超级管理员", "description": "平台最高权限，管理所有资源和用户",                    "scope": "global",  "is_system": True},
+    {"name": "admin",         "display_name": "平台管理员", "description": "管理用户和全局配置，可穿透所有项目",                  "scope": "global",  "is_system": True},
+    # 项目角色 — v2.0 对齐 DataWorks 专业版角色粒度
+    {"name": "project_owner", "display_name": "项目负责人", "description": "项目最高权限，管理所有资源和成员，可转让和删除项目",   "scope": "project", "is_system": True},
+    {"name": "project_admin", "display_name": "项目管理员", "description": "管理项目成员和资源，不可删除项目和转让所有权",        "scope": "project", "is_system": True},
+    {"name": "developer",     "display_name": "开发者",     "description": "创建/修改/运行数据开发任务，不可删除资源和发布上线",  "scope": "project", "is_system": True},
+    {"name": "operator",      "display_name": "运维者",     "description": "启停/执行/监控任务和数据源，不可创建和修改任务",      "scope": "project", "is_system": True},
+    {"name": "editor",        "display_name": "编辑者",     "description": "创建和修改数据源配置，不可删除和运行任务",            "scope": "project", "is_system": True},
+    {"name": "viewer",        "display_name": "查看者",     "description": "只读查看项目内所有资源",                            "scope": "project", "is_system": True},
 ]
 
 SEED_PERMISSIONS = [
@@ -119,6 +124,37 @@ ROLE_PERMISSION_MAP = {
         "crawler:start", "crawler:stop",
         "quality:create", "quality:read", "quality:update", "quality:execute",
         "api:create", "api:read", "api:update", "api:publish",
+        "platform:health",
+    ],
+    "project_admin": [
+        # 类似 project_owner 但无 project:delete 和 role:assign
+        "project:read", "project:update", "project:manage_members",
+        "datasource:create", "datasource:read", "datasource:update", "datasource:delete",
+        "datasource:test_connection", "datasource:sync",
+        "crawler:create", "crawler:read", "crawler:update", "crawler:delete",
+        "crawler:start", "crawler:stop",
+        "quality:create", "quality:read", "quality:update", "quality:delete", "quality:execute",
+        "api:create", "api:read", "api:update", "api:delete", "api:publish",
+        "platform:health",
+    ],
+    "developer": [
+        # 可创建/修改/运行任务，不可删除资源和管成员
+        "project:read",
+        "datasource:create", "datasource:read", "datasource:update",
+        "datasource:test_connection", "datasource:sync",
+        "crawler:create", "crawler:read", "crawler:update",
+        "crawler:start", "crawler:stop",
+        "quality:create", "quality:read", "quality:update", "quality:execute",
+        "api:create", "api:read", "api:update", "api:publish",
+        "platform:health",
+    ],
+    "operator": [
+        # 可启停/执行/监控，不可创建和修改资源
+        "project:read",
+        "datasource:read", "datasource:test_connection",
+        "crawler:read", "crawler:start", "crawler:stop",
+        "quality:read", "quality:execute",
+        "api:read",
         "platform:health",
     ],
     "viewer": [

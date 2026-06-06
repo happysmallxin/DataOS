@@ -26,12 +26,14 @@ from app.api.deps import (
     get_user_global_roles,
     require_permission,
     require_project_role,
+    invalidate_user_permission_cache,
     GLOBAL_ADMIN_ROLES,
 )
 from app.api.schemas import (
     ProjectCreate,
     ProjectUpdate,
     ProjectResponse,
+    PaginatedProjectResponse,
     ProjectTransferRequest,
     ProjectMemberAdd,
     ProjectMemberUpdate,
@@ -116,7 +118,7 @@ async def create_project(
     )
 
 
-@router.get("", response_model=list[ProjectResponse])
+@router.get("", response_model=PaginatedProjectResponse)
 async def list_projects(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -125,36 +127,39 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """项目列表 — 只返回当前用户有权限的项目."""
+    """项目列表 (v1.5: 服务端分页) — 只返回当前用户有权限的项目."""
     global_roles = await get_user_global_roles(current_user.id, db)
     is_global_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
 
+    # 构建基础查询
     if is_global_admin:
-        stmt = select(Project)
+        base_stmt = select(Project)
     else:
-        stmt = (
+        base_stmt = (
             select(Project)
             .join(ProjectMember, ProjectMember.project_id == Project.id)
             .where(ProjectMember.user_id == current_user.id)
         )
 
     if search:
-        stmt = stmt.where(
+        base_stmt = base_stmt.where(
             Project.name.contains(search) | Project.display_name.contains(search)
         )
     if status:
-        stmt = stmt.where(Project.status == status)
+        base_stmt = base_stmt.where(Project.status == status)
 
-    stmt = stmt.order_by(Project.updated_at.desc())
-    stmt = stmt.distinct()
-    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    # 总数查询
+    count_stmt = select(func.count()).select_from(base_stmt.distinct().subquery())
+    total = (await db.execute(count_stmt)).scalar() or 0
 
-    result = await db.execute(stmt)
+    # 数据查询
+    data_stmt = base_stmt.order_by(Project.updated_at.desc()).distinct()
+    data_stmt = data_stmt.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(data_stmt)
     projects = result.scalars().all()
 
-    responses = []
+    items = []
     for p in projects:
-        # 统计成员数
         member_count_result = await db.execute(
             select(func.count()).select_from(ProjectMember).where(
                 ProjectMember.project_id == p.id
@@ -162,7 +167,7 @@ async def list_projects(
         )
         member_count = member_count_result.scalar() or 0
 
-        responses.append(ProjectResponse(
+        items.append(ProjectResponse(
             id=p.id,
             name=p.name,
             display_name=p.display_name,
@@ -175,7 +180,14 @@ async def list_projects(
             updated_at=p.updated_at,
         ))
 
-    return responses
+    import math
+    return PaginatedProjectResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, math.ceil(total / page_size)),
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -507,6 +519,10 @@ async def add_member(
     ))
 
     await db.commit()
+
+    # v1.5: 失效新成员的权限缓存
+    await invalidate_user_permission_cache(req.user_id, project_id)
+
     return {"message": "成员添加成功"}
 
 
@@ -547,6 +563,10 @@ async def update_member_role(
     ))
 
     await db.commit()
+
+    # v1.5: 失效该用户的权限缓存
+    await invalidate_user_permission_cache(user_id, project_id)
+
     return {"message": "成员角色已更新"}
 
 
@@ -583,4 +603,8 @@ async def remove_member(
     ))
 
     await db.commit()
+
+    # v1.5: 失效被移除用户的权限缓存
+    await invalidate_user_permission_cache(user_id, project_id)
+
     return {"message": "成员已移除"}

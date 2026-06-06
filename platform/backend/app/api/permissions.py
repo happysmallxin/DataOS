@@ -27,6 +27,7 @@ from app.api.deps import (
     get_current_active_superuser,
     get_user_permissions,
     get_user_global_roles,
+    invalidate_user_permission_cache,
     GLOBAL_ADMIN_ROLES,
 )
 from app.api.schemas import (
@@ -36,6 +37,7 @@ from app.api.schemas import (
     PermissionResponse,
     UserRoleAssign,
     UserPermissionsResponse,
+    UserSearchResult,
 )
 from app.core.database import get_db
 from app.models.user import User
@@ -250,6 +252,10 @@ async def assign_user_role(
     ur = UserRole(user_id=user_id, role_id=req.role_id)
     db.add(ur)
     await db.commit()
+
+    # v1.5: 失效用户权限缓存
+    await invalidate_user_permission_cache(user_id)
+
     return {"message": f"已为用户分配角色: {role.display_name}"}
 
 
@@ -269,4 +275,42 @@ async def revoke_user_role(
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="用户没有该角色")
     await db.commit()
+
+    # v1.5: 失效用户权限缓存
+    await invalidate_user_permission_cache(user_id)
+
     return {"message": "角色已撤销"}
+
+
+# ============================================================
+# 用户搜索 (v1.5 新增 — 成员管理自动完成)
+# ============================================================
+
+@router.get("/api/v1/users/search", response_model=list[UserSearchResult])
+async def search_users(
+    q: str = Query(..., min_length=1, description="搜索关键词"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """搜索用户 (按 username/email/display_name 模糊匹配) — 成员管理用."""
+    result = await db.execute(
+        select(User)
+        .where(
+            User.username.contains(q)
+            | User.email.contains(q)
+            | User.display_name.contains(q)
+        )
+        .where(User.is_active == True)
+        .limit(limit)
+    )
+    users = result.scalars().all()
+    return [
+        UserSearchResult(
+            id=u.id,
+            username=u.username,
+            email=u.email,
+            display_name=u.display_name,
+        )
+        for u in users
+    ]

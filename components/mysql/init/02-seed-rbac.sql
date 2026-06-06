@@ -8,11 +8,14 @@ USE dataos_platform;
 -- 角色
 -- ============================================================
 INSERT IGNORE INTO roles (name, display_name, description, scope, is_system) VALUES
-('super_admin',   '超级管理员', '平台最高权限，管理所有资源和用户',         'global',  TRUE),
-('admin',         '平台管理员', '管理用户和全局配置',                     'global',  TRUE),
-('project_owner', '项目负责人', '管理项目内所有资源和成员',               'project', TRUE),
-('editor',        '编辑者',     '创建和修改数据源、爬虫、质量规则、API',  'project', TRUE),
-('viewer',        '查看者',     '只读查看项目内所有资源',                 'project', TRUE);
+('super_admin',   '超级管理员', '平台最高权限，管理所有资源和用户',                    'global',  TRUE),
+('admin',         '平台管理员', '管理用户和全局配置，可穿透所有项目',                  'global',  TRUE),
+('project_owner', '项目负责人', '项目最高权限，管理所有资源和成员，可转让和删除项目',   'project', TRUE),
+('project_admin', '项目管理员', '管理项目成员和资源，不可删除项目和转让所有权',        'project', TRUE),
+('developer',     '开发者',     '创建/修改/运行数据开发任务，不可删除资源和发布上线',  'project', TRUE),
+('operator',      '运维者',     '启停/执行/监控任务和数据源，不可创建和修改任务',      'project', TRUE),
+('editor',        '编辑者',     '创建和修改数据源配置，不可删除和运行任务',            'project', TRUE),
+('viewer',        '查看者',     '只读查看项目内所有资源',                             'project', TRUE);
 
 -- ============================================================
 -- 权限
@@ -108,6 +111,49 @@ WHERE r.name = 'editor'
     'crawler:start','crawler:stop',
     'quality:create','quality:read','quality:update','quality:execute',
     'api:create','api:read','api:update','api:publish',
+    'platform:health'
+  );
+
+-- project_admin (v2.0: 类似 project_owner 但无 project:delete 和 role:assign)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'project_admin'
+  AND p.name IN (
+    'project:read','project:update','project:manage_members',
+    'datasource:create','datasource:read','datasource:update','datasource:delete',
+    'datasource:test_connection','datasource:sync',
+    'crawler:create','crawler:read','crawler:update','crawler:delete',
+    'crawler:start','crawler:stop',
+    'quality:create','quality:read','quality:update','quality:delete','quality:execute',
+    'api:create','api:read','api:update','api:delete','api:publish',
+    'platform:health'
+  );
+
+-- developer (v2.0: 可创建/修改/运行，不可删除)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'developer'
+  AND p.name IN (
+    'project:read',
+    'datasource:create','datasource:read','datasource:update',
+    'datasource:test_connection','datasource:sync',
+    'crawler:create','crawler:read','crawler:update',
+    'crawler:start','crawler:stop',
+    'quality:create','quality:read','quality:update','quality:execute',
+    'api:create','api:read','api:update','api:publish',
+    'platform:health'
+  );
+
+-- operator (v2.0: 可启停/执行/监控，不可创建修改)
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r, permissions p
+WHERE r.name = 'operator'
+  AND p.name IN (
+    'project:read',
+    'datasource:read','datasource:test_connection',
+    'crawler:read','crawler:start','crawler:stop',
+    'quality:read','quality:execute',
+    'api:read',
     'platform:health'
   );
 

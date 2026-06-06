@@ -62,7 +62,7 @@ class TestGlobalRoles:
 class TestRoleLevels:
     def test_super_admin_is_highest(self):
         assert ROLE_LEVEL["super_admin"] > ROLE_LEVEL["admin"]
-        assert ROLE_LEVEL["super_admin"] == 5
+        assert ROLE_LEVEL["super_admin"] == 6  # v2.0: 8-role levels
 
     def test_viewer_is_lowest(self):
         assert ROLE_LEVEL["viewer"] == 1

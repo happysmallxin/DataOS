@@ -47,8 +47,11 @@ class TestProjectCRUD:
         resp = await client.get("/api/v1/projects", headers=admin_headers)
         assert resp.status_code == 200
         data = resp.json()
-        assert isinstance(data, list)
-        assert len(data) >= 1
+        # v1.5: paginated response { items, total, page, page_size, total_pages }
+        assert isinstance(data, dict)
+        assert "items" in data
+        assert "total" in data
+        assert len(data["items"]) >= 1
 
     @pytest.mark.asyncio
     async def test_get_project_detail(self, client: AsyncClient, admin_headers):

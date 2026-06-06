@@ -1,10 +1,10 @@
 /**
  * 项目列表页 — 卡片 + 搜索 + 新建项目.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Card, Row, Col, Button, Input, Tag, Space, Typography, Modal, Form, message, Spin, Empty,
+  Card, Row, Col, Button, Input, Tag, Space, Typography, Modal, Form, message, Spin, Empty, Pagination,
 } from 'antd'
 import { PlusOutlined, SearchOutlined, ProjectOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons'
 import apiClient from '../utils/api'
@@ -37,32 +37,39 @@ export default function Projects() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | undefined>('active')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
   const [createOpen, setCreateOpen] = useState(false)
   const [createForm] = Form.useForm()
   const [creating, setCreating] = useState(false)
   const navigate = useNavigate()
   const { can } = usePermission()
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     setLoading(true)
     try {
-      const params: any = {}
+      const params: any = { page, page_size: pageSize }
       if (search) params.search = search
       if (statusFilter) params.status = statusFilter
       const resp = await apiClient.get('/projects', { params })
-      setProjects(resp.data)
+      // v1.5: 分页响应 { items, total, page, page_size, total_pages }
+      const data = resp.data
+      setProjects(data.items || data)
+      setTotal(data.total || 0)
     } catch {
       message.error('获取项目列表失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, statusFilter])
 
   useEffect(() => {
     fetchProjects()
-  }, [statusFilter])
+  }, [fetchProjects])
 
   const handleSearch = () => {
+    setPage(1)
     fetchProjects()
   }
 
@@ -188,6 +195,24 @@ export default function Projects() {
             )
           })}
         </Row>
+      )}
+
+      {/* v1.5: 服务端分页 */}
+      {total > pageSize && (
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            showTotal={(t) => `共 ${t} 个项目`}
+            showSizeChanger
+            pageSizeOptions={['12', '20', '50']}
+            onChange={(p, ps) => {
+              setPage(p)
+              if (ps !== pageSize) { setPageSize(ps); setPage(1) }
+            }}
+          />
+        </div>
       )}
 
       {/* 新建项目弹窗 */}

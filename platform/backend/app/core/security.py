@@ -31,7 +31,17 @@ def create_access_token(
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc)})
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "access"})
+    return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_refresh_token(data: dict) -> str:
+    """创建 JWT refresh token (v1.5 新增)."""
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.JWT_REFRESH_EXPIRE_MINUTES
+    )
+    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "refresh"})
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -41,3 +51,11 @@ def decode_access_token(token: str) -> Optional[dict]:
         return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
     except JWTError:
         return None
+
+
+def decode_refresh_token(token: str) -> Optional[dict]:
+    """解析 refresh token, 校验 type=refresh (v1.5 新增)."""
+    payload = decode_access_token(token)
+    if payload and payload.get("type") == "refresh":
+        return payload
+    return None

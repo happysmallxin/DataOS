@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     # JWT
     JWT_SECRET: str = "dataos-jwt-secret-dev-only-change-in-prod"
     JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 480  # 8 小时
+    JWT_EXPIRE_MINUTES: int = 480  # access token: 8 小时
+    JWT_REFRESH_EXPIRE_MINUTES: int = 10080  # refresh token: 7 天
 
     # 下游服务地址
     DOLPHINSCHEDULER_URL: str = "http://localhost:12345"

@@ -16,9 +16,15 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str = ""       # v1.5: refresh token for token rotation
     token_type: str = "bearer"
     expires_in: int
     user: Optional["LoginUserInfo"] = None  # P1 增强: 登录直接返回权限信息
+
+
+class RefreshTokenRequest(BaseModel):
+    """Token 刷新请求 (v1.5 新增)."""
+    refresh_token: str = Field(..., description="refresh token")
 
 
 class LoginUserInfo(BaseModel):
@@ -74,6 +80,15 @@ class ProjectResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PaginatedProjectResponse(BaseModel):
+    """分页项目列表响应 (v1.5 新增)."""
+    items: list[ProjectResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class ProjectTransferRequest(BaseModel):
@@ -222,6 +237,17 @@ class AuditLogListResponse(BaseModel):
     page: int
     page_size: int
     items: list[AuditLogResponse]
+
+
+# ============================================================
+# User Search (v1.5 新增)
+# ============================================================
+class UserSearchResult(BaseModel):
+    """用户搜索结果 (成员管理自动完成)."""
+    id: int
+    username: str
+    email: str
+    display_name: Optional[str] = None
 
 
 # ============================================================
