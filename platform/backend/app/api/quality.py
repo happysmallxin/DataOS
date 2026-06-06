@@ -1,9 +1,11 @@
 """数据质量 API — 规则配置 + 执行校验."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 import pandas as pd
 
+from app.api.deps import get_current_user
+from app.models.user import User
 from app.services.quality import quality_engine, QualityResult
 
 router = APIRouter(prefix="/api/v1/quality", tags=["DataQuality"])
@@ -36,8 +38,11 @@ class QualityCheckResponse(BaseModel):
 
 
 @router.post("/check", response_model=QualityCheckResponse)
-async def run_quality_check(req: QualityCheckRequest):
-    """执行数据质量检查 — 传入数据和规则，返回检查结果."""
+async def run_quality_check(
+    req: QualityCheckRequest,
+    _: User = Depends(get_current_user),
+):
+    """执行数据质量检查 — 传入数据和规则，返回检查结果。"""
     # 转换为 DataFrame
     df = pd.DataFrame(req.data) if req.data else pd.DataFrame()
 
@@ -60,7 +65,9 @@ async def run_quality_check(req: QualityCheckRequest):
 
 
 @router.get("/rules")
-async def list_rule_templates():
+async def list_rule_templates(
+    _: User = Depends(get_current_user),
+):
     """获取内置规则模板列表 — 对标 DataWorks 37种规则."""
     return [
         {"type": "not_null", "label": "非空校验", "description": "检查指定列是否包含空值", "icon": "stop"},

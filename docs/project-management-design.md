@@ -558,6 +558,193 @@ async def check_quota(project_id: int, resource_type: str, db: AsyncSession):
 
 ---
 
+### 3.7 项目数据隔离 — 完整实现 (v2.0 新增)
+
+> **核心原则**: 项目是 DataOS 的**顶层隔离单元**。所有资源操作必须在项目上下文中执行，确保多租户数据不泄露。
+
+#### 3.7.1 隔离架构总览
+
+```
+                        ┌──────────────────────────────┐
+                        │        请求入口                │
+                        │  GET /datasources?project_id=1│
+                        │  POST /projects/1/members     │
+                        └──────────────┬───────────────┘
+                                       │
+                        ┌──────────────▼───────────────┐
+                        │     JWT 认证 (deps.py)        │
+                        │  get_current_user → User      │
+                        └──────────────┬───────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+    ┌─────────▼─────────┐  ┌───────────▼──────────┐  ┌─────────▼─────────┐
+    │ 权限守卫 (全局)     │  │ 角色守卫 (项目)       │  │ 显式 project_id   │
+    │ require_permission │  │ require_project_role │  │ 查询参数过滤       │
+    │ "datasource:read"  │  │ "project_owner"      │  │ ?project_id=1     │
+    └─────────┬─────────┘  └───────────┬──────────┘  └─────────┬─────────┘
+              │                        │                        │
+              └────────────────────────┼────────────────────────┘
+                                       │
+                        ┌──────────────▼───────────────┐
+                        │     DB 层 FK 约束             │
+                        │  datasources.project_id →     │
+                        │  projects.id                  │
+                        │  project_members.project_id →  │
+                        │  projects.id                  │
+                        │  audit_logs.project_id →       │
+                        │  projects.id (SET NULL)        │
+                        └──────────────────────────────┘
+```
+
+#### 3.7.2 三层隔离机制
+
+DataOS 的项目数据隔离通过 **三层防护** 实现，每一层独立校验，任一失败都返回 403：
+
+##### 第 1 层: URL 路径参数隔离 (路由级)
+
+资源端点直接嵌入了 `project_id`，从 URL 中提取，天然隔离：
+
+| 端点 | 隔离方式 | 说明 |
+|------|---------|------|
+| `GET /projects/{id}/members` | `project_id` 来自 URL path | 只能查看该项目的成员 |
+| `POST /projects/{id}/members` | `project_id` 来自 URL path | 只能添加到该项目 |
+| `PUT /projects/{id}/members/{uid}` | `project_id` 来自 URL path | 只能修改该项目内成员 |
+| `DELETE /projects/{id}/members/{uid}` | `project_id` 来自 URL path | 只能从该项目移除 |
+| `GET /projects/{id}/audit-logs` | `project_id` 来自 URL path | 只能查看该项目的操作记录 |
+| `POST /projects/{id}/transfer` | `project_id` 来自 URL path | 只能转让该项目 |
+| `POST /projects/{id}/freeze` | `project_id` 来自 URL path | 只能冻结该项目 |
+| `POST /projects/{id}/unfreeze` | `project_id` 来自 URL path | 只能解冻该项目 |
+
+##### 第 2 层: 权限守卫 (代码级)
+
+```python
+# deps.py — require_project_role 守卫实现
+
+def require_project_role(*min_roles: str):
+    async def checker(project_id: int, current_user: User, db: AsyncSession):
+        # Step 1: 全局管理员直接放行 (穿透所有项目)
+        global_roles = await get_user_global_roles(current_user.id, db)
+        if {r.name for r in global_roles} & {"super_admin", "admin"}:
+            return None  # 全局管理员
+
+        # Step 2: 查 project_members 表 — 用户必须是该项目成员
+        result = await db.execute(
+            select(ProjectMember, Role)
+            .join(Role, Role.id == ProjectMember.role_id)
+            .where(
+                ProjectMember.project_id == project_id,  # ← 项目隔离!
+                ProjectMember.user_id == current_user.id, # ← 用户身份!
+            )
+        )
+        row = result.one_or_none()
+        if not row:
+            raise HTTPException(403, "你不是该项目成员")  # ← 非成员拒绝!
+
+        # Step 3: 角色级别校验
+        member, role = row
+        min_level = min(ROLE_LEVEL[r] for r in min_roles)
+        if ROLE_LEVEL[role.name] < min_level:
+            raise HTTPException(403, f"需要 {min_roles} 角色")
+
+        return member  # 返回 project_member 记录供后续使用
+    return checker
+```
+
+**关键**: `project_id` 来自 URL 路径参数（FastAPI 自动注入），用户不能伪造——它是由路由匹配的，不是请求体中的字段。
+
+##### 第 3 层: 数据库外键约束 (存储级)
+
+```sql
+-- 所有资源表都有 project_id FK，确保物理隔离
+
+-- 数据源: 归属到项目
+datasources.project_id → projects.id (NOT NULL, CASCADE DELETE)
+
+-- 项目成员: 归属到项目  
+project_members.project_id → projects.id (NOT NULL, CASCADE DELETE)
+
+-- 审计日志: 归属到项目 (可为 NULL 表示平台级操作)
+audit_logs.project_id → projects.id (NULLABLE, SET NULL ON DELETE)
+```
+
+**效果**: 即使代码层校验被绕过，数据库层的外键约束也确保数据不会跨项目泄漏。
+
+#### 3.7.3 各资源隔离状态
+
+| 资源 | DB 表 | project_id FK | 权限守卫 | 查询过滤 | 隔离状态 |
+|------|-------|:---:|:---:|:---:|:---:|
+| **项目本身** | `projects` | — | `require_permission("project:read")` | 成员过滤 / admin 全量 | ✅ 完整 |
+| **数据源** | `datasources` | ✅ NOT NULL | `require_project_role` + `require_permission` | `?project_id=` 查询参数 | ✅ 完整 |
+| **项目成员** | `project_members` | ✅ NOT NULL | `require_project_role("project_owner")` | URL path project_id | ✅ 完整 |
+| **审计日志** | `audit_logs` | ✅ NULLABLE | `require_project_role` (项目审计) / admin (全局审计) | URL path project_id | ✅ 完整 |
+| **质量规则** | ❌ 无持久化 | — | ❌ 无守卫 | ❌ 无过滤 | 🔴 无隔离 |
+| **清洗 Pipeline** | ❌ 无持久化 | — | ❌ 无守卫 | ❌ 无过滤 | 🔴 无隔离 |
+| **爬虫任务** | Crawlab 管理 | — | 通过 Crawlab API | — | ⚠️ 外部组件 |
+
+#### 3.7.4 数据源隔离的完整请求追踪
+
+以"用户在项目 1 中创建数据源"为例，追踪完整隔离链路：
+
+```
+1. 前端点击"注册数据源" → 弹窗填写表单
+   dsCreateForm.setFieldValue('source_type', 'mysql')
+   用户选择 project_id=1 (项目详情页自动带入)
+
+2. POST /api/v1/datasources  Body: { project_id: 1, name: "mysql_prod", ... }
+   Header: Authorization: Bearer <JWT>
+
+3. deps.py: get_current_user()
+   → 解析 JWT → User(id=2, username="admin")
+   
+4. deps.py: require_project_role("project_owner", "editor") 
+   → 查 project_members WHERE project_id=1 AND user_id=2
+   → 找到 member 记录, role=project_owner
+   → ROLE_LEVEL[project_owner]=4 >= min(owner=4, editor=1.5)=1.5 ✅ 放行
+   
+   🔒 如果用户不是项目 1 的成员 → 403 "你不是该项目成员"
+   🔒 如果用户是 viewer (level=1) → 403 "需要 project_owner/editor 角色"
+
+5. api/datasources.py: create_datasource()
+   → DataSource(project_id=req.project_id, name="mysql_prod", ...)
+   → encrypt_config() 加密密码字段
+   → AuditLog(user_id=2, project_id=1, resource="datasource", action="create")
+   → db.commit()
+   
+   🔒 project_id=1 写入 DB — 数据源归属项目 1
+
+6. 后续查询: GET /datasources?project_id=1
+   → SELECT * FROM datasources WHERE project_id=1
+   → 只返回项目 1 的数据源
+   
+   🔒 项目 2 的用户无法看到项目 1 的数据源
+```
+
+#### 3.7.5 隔离缺口与修复计划
+
+| # | 缺口 | 风险 | 修复方案 | 优先级 |
+|---|------|------|---------|:---:|
+| 1 | 质量规则无持久化 | 规则无法跨会话复用，无法按项目隔离 | 新增 `quality_rules` 表 + `project_id` FK + CRUD API | P1 |
+| 2 | 清洗 Pipeline 无持久化 | Pipeline 定义无法保存和复用 | 新增 `pipelines` 表 + `project_id` FK + CRUD API | P1 |
+| 3 | datasources 无 (project_id, name) 唯一约束 | 同一项目内可能创建同名数据源 | `ALTER TABLE datasources ADD UNIQUE KEY uq_ds (project_id, name)` | P0 |
+| 4 | Quality API 无认证守卫 | `/api/v1/quality/check` 和 `/rules` 不需要登录 | 添加 `Depends(get_current_user)` | P0 |
+| 5 | Cleaning API 无认证守卫 | `/api/v1/cleaning/*` 不需要登录 | 添加 `Depends(get_current_user)` | P0 |
+| 6 | 爬虫任务无项目归属 | Crawlab 侧无 project_id 映射 | Crawlab tag/label 传递 project_id | P2 |
+
+#### 3.7.6 设计对比: DataOS vs DataWorks 项目隔离
+
+| 维度 | DataOS | DataWorks |
+|------|--------|-----------|
+| **隔离粒度** | 项目级 (project_id FK) | 工作空间级 (workspace_id) |
+| **权限模型** | 双范围 RBAC (全局+项目) 动态并集 | 空间内角色 (管理员/开发/运维/访客) |
+| **数据源隔离** | DB FK + API 守卫 + 查询过滤 | 空间内数据源，跨空间不可见 |
+| **API 认证** | JWT Bearer Token (每次请求校验) | RAM 鉴权 + STS Token |
+| **审计** | 手动记录 + project_id 关联 | 操作审计中心 (ActionTrail) |
+| **环境隔离** | ❌ 尚未实现 | ✅ 标准模式 (dev/prod 隔离) |
+| **资源配额** | ❌ 表已设计未实现 | ✅ 资源组配额 |
+
+---
+
 ## 四、数据库表设计
 
 ### 4.1 ER 关系 — 完整 RBAC 模型

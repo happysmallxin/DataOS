@@ -6,9 +6,11 @@
   GET    /api/v1/cleaning/stages          可用阶段列表
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from app.api.deps import get_current_user
+from app.models.user import User
 from app.services.cleaning import CleaningPipeline
 from app.services.cleaning.stages.profiling import generate_profile
 
@@ -30,7 +32,10 @@ class PipelineRunRequest(BaseModel):
 
 
 @router.post("/profile")
-async def profile_data(req: ProfileRequest):
+async def profile_data(
+    req: ProfileRequest,
+    _: User = Depends(get_current_user),
+):
     """⓪ 数据画像 — 对标 DataBrew Data Profile.
 
     返回每列的统计特征、质量问题和清洗建议。
@@ -65,7 +70,10 @@ async def profile_data(req: ProfileRequest):
 
 
 @router.post("/pipelines/run")
-async def run_pipeline(req: PipelineRunRequest):
+async def run_pipeline(
+    req: PipelineRunRequest,
+    _: User = Depends(get_current_user),
+):
     """执行清洗 Pipeline — 对标 DataBrew Recipe Job.
 
     按顺序执行 stages，返回包含每阶段详细报告的 PipelineReport。
@@ -83,6 +91,8 @@ async def run_pipeline(req: PipelineRunRequest):
 
 
 @router.get("/stages")
-async def list_stages():
+async def list_stages(
+    _: User = Depends(get_current_user),
+):
     """获取可用阶段列表 — 对标 DataBrew 配方步骤目录."""
     return pipeline.available_stages()
