@@ -30,9 +30,9 @@ class ProfileRequest(BaseModel):
 
 
 class PipelineRunRequest(BaseModel):
-    data: list[dict] = Field(..., description="待清洗的数据 (JSON 行)")
+    data: list[dict] = Field(default_factory=list, description="待清洗的数据 (JSON 行), 不传则从 MinIO 读取")
     stages: list[dict] = Field(default_factory=list, description="运行时阶段定义")
-    pipeline_id: int | None = Field(default=None, description="持久化 Pipeline ID (P1: 使用已存储的阶段)")
+    pipeline_id: int | None = Field(default=None, description="持久化 Pipeline ID (自动从 MinIO 读取)")
     pipeline_name: str = Field(default="", description="Pipeline 名称")
     pipeline_version: int = Field(default=1, description="版本号")
 
@@ -45,10 +45,27 @@ class PipelineRunRequest(BaseModel):
 async def create_pipeline(
     req: PipelineCreate,
     current_user: User = Depends(get_current_user),
-    _ = Depends(require_project_role("project_owner", "editor", "developer")),
     db: AsyncSession = Depends(get_db),
 ):
     """创建持久化清洗 Pipeline — 归属到项目."""
+    # 手动权限检查: project_id 在 body 中, require_project_role 需要 path param
+    global_roles = await get_user_global_roles(current_user.id, db)
+    is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
+    if not is_admin:
+        from app.models.project_member import ProjectMember as PM
+        from app.models.role import Role
+        member = await db.execute(
+            select(PM, Role).join(Role, Role.id == PM.role_id).where(
+                PM.project_id == req.project_id, PM.user_id == current_user.id
+            )
+        )
+        row = member.one_or_none()
+        if not row:
+            raise HTTPException(status_code=403, detail="你不是该项目成员")
+        _, role = row
+        if role.name not in ("project_owner", "editor", "developer"):
+            raise HTTPException(status_code=403, detail="需要 project_owner/editor/developer 角色")
+
     existing = await db.execute(
         select(PipelineModel).where(
             PipelineModel.project_id == req.project_id,
@@ -60,6 +77,9 @@ async def create_pipeline(
 
     pl = PipelineModel(
         project_id=req.project_id,
+        datasource_id=req.datasource_id,
+        source_table=req.source_table,
+        target_table=req.target_table,
         name=req.name,
         description=req.description,
         stages=req.stages,
