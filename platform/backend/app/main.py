@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, projects, datasources
+from app.api import auth, health, projects, datasources, quality
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 
@@ -76,6 +76,7 @@ app.include_router(auth.router)
 app.include_router(health.router)
 app.include_router(projects.router)
 app.include_router(datasources.router)
+app.include_router(quality.router)
 
 
 @app.get("/")
