@@ -228,6 +228,7 @@ async def get_source_types():
 import time
 from datetime import datetime, timezone
 import pandas as pd
+from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -416,6 +417,83 @@ async def sync_datasource(
         sync_record.duration_seconds = round(time.time() - start, 2)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"同步失败: {str(e)}")
+
+
+class SyncAllRequest(PydanticBaseModel):
+    table_names: list[str] = []
+
+
+@router.post("/{ds_id}/sync-all")
+async def sync_all_tables(
+    ds_id: int,
+    req: SyncAllRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """批量同步数据源的多张表 → MinIO (Bronze 层).
+
+    一次请求同步多张表, 返回每张表的同步结果。
+    """
+    ds = await db.get(DataSource, ds_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="数据源不存在")
+
+    from app.api.deps import get_user_permissions
+    perms = await get_user_permissions(current_user.id, db, ds.project_id)
+    if "datasource:sync" not in perms:
+        raise HTTPException(status_code=403, detail="需要权限: datasource:sync")
+
+    from app.models.sync_history import SyncHistory
+    from app.core.minio_client import write_dataframe, get_bronze_path
+
+    table_names = req.table_names
+    if not table_names:
+        # 如果没指定, 获取所有表
+        url = _build_sqlalchemy_url(ds)
+        engine = create_engine(url, connect_args={"connect_timeout": 10})
+        inspector = inspect(engine)
+        table_names = inspector.get_table_names()
+        engine.dispose()
+
+    results = []
+    for table_name in table_names:
+        sync_record = SyncHistory(
+            datasource_id=ds_id, project_id=ds.project_id,
+            table_name=table_name, sync_mode="full",
+            status="running", triggered_by=current_user.id,
+        )
+        db.add(sync_record)
+        await db.commit()
+        await db.refresh(sync_record)
+
+        start = time.time()
+        try:
+            url = _build_sqlalchemy_url(ds)
+            engine = create_engine(url, connect_args={"connect_timeout": 30})
+            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+            engine.dispose()
+
+            date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
+            prefix = get_bronze_path(ds_id, table_name, date_str)
+            key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+            result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
+
+            sync_record.status = "success"
+            sync_record.total_rows = len(df)
+            sync_record.total_bytes = result["size_bytes"]
+            sync_record.storage_path = f"{settings.MINIO_BUCKET_BRONZE}/{key}"
+            sync_record.duration_seconds = round(time.time() - start, 2)
+            results.append({"table": table_name, "status": "success", "rows": len(df), "size_bytes": result["size_bytes"]})
+        except Exception as e:
+            sync_record.status = "failed"
+            sync_record.error_message = str(e)
+            sync_record.duration_seconds = round(time.time() - start, 2)
+            results.append({"table": table_name, "status": "failed", "error": str(e)})
+
+    ds.last_sync_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return {"datasource_id": ds_id, "total": len(results), "tables": results}
 
 
 @router.get("/{ds_id}/sync-history", response_model=list[SyncHistoryResponse])

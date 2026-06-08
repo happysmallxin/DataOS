@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer } from 'antd'
+import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer, Checkbox } from 'antd'
 import {
   PlusOutlined, ReloadOutlined, DatabaseOutlined, ApiOutlined,
   SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined, HistoryOutlined,
@@ -43,7 +43,8 @@ export default function DataSources() {
   const [syncDsId, setSyncDsId] = useState<number | null>(null)
   const [tables, setTables] = useState<TableInfo[]>([])
   const [tablesLoading, setTablesLoading] = useState(false)
-  const [syncTable, setSyncTable] = useState('')
+  const [syncTables, setSyncTables] = useState<Set<string>>(new Set())
+  const [syncResults, setSyncResults] = useState<any>(null)
 
   // 预览
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -121,16 +122,18 @@ export default function DataSources() {
   }
 
   const handleSync = async () => {
-    if (!syncDsId || !syncTable) return
+    if (!syncDsId || syncTables.size === 0) return
     setSyncing(syncDsId)
+    setSyncResults(null)
     try {
-      const res = await apiClient.post(`/datasources/${syncDsId}/sync`, {
-        table_name: syncTable,
-        sync_mode: 'full',
+      const res = await apiClient.post(`/datasources/${syncDsId}/sync-all`, {
+        table_names: Array.from(syncTables),
       })
-      message.success(`同步完成: ${res.data.rows} 行, ${(res.data.size_bytes / 1024).toFixed(1)} KB`)
-      setSyncModalOpen(false)
-      setSyncTable('')
+      const ok = res.data.tables.filter((t: any) => t.status === 'success').length
+      const fail = res.data.tables.filter((t: any) => t.status === 'failed').length
+      message.success(`同步完成: ${ok} 成功${fail > 0 ? `, ${fail} 失败` : ''}`)
+      setSyncResults(res.data.tables)
+      setSyncTables(new Set())
       fetchData()
     } catch (err: any) {
       message.error(err.response?.data?.detail || '同步失败')
@@ -265,24 +268,30 @@ export default function DataSources() {
       </Modal>
 
       {/* 同步弹窗: 选表 + 预览 */}
-      <Modal title="选择要同步的表" open={syncModalOpen}
-        onCancel={() => { setSyncModalOpen(false); setSyncTable('') }}
-        onOk={handleSync} okText="开始同步" confirmLoading={syncing !== null}
+      <Modal title={`选择要同步的表 (已选 ${syncTables.size} 张)`} open={syncModalOpen}
+        onCancel={() => { setSyncModalOpen(false); setSyncTables(new Set()); setSyncResults(null) }}
+        onOk={handleSync} okText={`同步 ${syncTables.size} 张表`} confirmLoading={syncing !== null}
         width={640}>
         {tablesLoading ? <Text type="secondary">加载表列表中...</Text> : (
           <div>
+            <div style={{ marginBottom: 8 }}>
+              <Button size="small" onClick={() => setSyncTables(new Set(tables.map(t => t.name)))}>全选</Button>
+              <Button size="small" style={{ marginLeft: 8 }} onClick={() => setSyncTables(new Set())}>取消全选</Button>
+            </div>
             {tables.map(t => (
               <div key={t.name} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '8px 12px', margin: '4px 0',
-                background: syncTable === t.name ? '#e6f4ff' : '#fafafa',
-                borderRadius: 6, cursor: 'pointer',
-              }} onClick={() => setSyncTable(t.name)}>
-                <Space>
-                  <TableOutlined />
+                padding: '6px 12px', margin: '2px 0', background: '#fafafa', borderRadius: 6,
+              }}>
+                <Checkbox checked={syncTables.has(t.name)}
+                  onChange={(e) => {
+                    const next = new Set(syncTables)
+                    e.target.checked ? next.add(t.name) : next.delete(t.name)
+                    setSyncTables(next)
+                  }}>
                   <Text strong>{t.name}</Text>
-                  <Text type="secondary">({t.columns.length} 列)</Text>
-                </Space>
+                  <Text type="secondary"> ({t.columns.length} 列)</Text>
+                </Checkbox>
                 <Button size="small" icon={<EyeOutlined />}
                   onClick={(e) => { e.stopPropagation(); handlePreview(syncDsId!, t.name) }}>
                   预览
@@ -290,6 +299,20 @@ export default function DataSources() {
               </div>
             ))}
             {tables.length === 0 && <Text type="secondary">无可用表</Text>}
+
+            {/* 同步结果 */}
+            {syncResults && (
+              <div style={{ marginTop: 12, padding: 8, background: '#f6ffed', borderRadius: 6 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>同步结果:</Text>
+                {syncResults.map((r: any) => (
+                  <div key={r.table} style={{ fontSize: 12 }}>
+                    <Tag color={r.status === 'success' ? 'green' : 'red'}>{r.status}</Tag>
+                    {r.table}: {r.rows?.toLocaleString() || '—'} 行
+                    {r.error && <Text type="danger"> — {r.error}</Text>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
