@@ -34,7 +34,7 @@ const allMenuItems: MenuItem[] = [
   { key: '/crawlers', icon: <BugOutlined />, label: '网页爬取', permission: 'crawler:read' },
   { key: '/quality', icon: <SafetyCertificateOutlined />, label: '数据质量', permission: 'quality:read' },
   { key: '/data-service', icon: <ApiOutlined />, label: '数据服务', permission: 'api:read' },
-  { key: '/roles', icon: <TeamOutlined />, label: '角色权限', permission: 'role:read' },
+  { key: '/users', icon: <TeamOutlined />, label: '用户管理', permission: 'user:read' },
   { key: '/audit-logs', icon: <AuditOutlined />, label: '审计日志', permission: 'platform:audit' },
   { key: '/settings', icon: <SettingOutlined />, label: '平台设置' },
 ]

@@ -12,7 +12,7 @@ import DataAPI from './pages/DataAPI'
 import Settings from './pages/Settings'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
-import Roles from './pages/Roles'
+import UserManagement from './pages/UserManagement'
 import AuditLogs from './pages/AuditLogs'
 
 export default function App() {
@@ -89,10 +89,10 @@ export default function App() {
             }
           />
           <Route
-            path="roles"
+            path="users"
             element={
-              <ProtectedRoute permission="role:read">
-                <Roles />
+              <ProtectedRoute permission="user:read">
+                <UserManagement />
               </ProtectedRoute>
             }
           />

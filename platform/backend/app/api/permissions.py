@@ -314,3 +314,104 @@ async def search_users(
         )
         for u in users
     ]
+
+
+# ============================================================
+# 用户管理 (完整 CRUD)
+# ============================================================
+
+from typing import Optional
+from pydantic import BaseModel as PydanticModel, Field as PydanticField
+from datetime import datetime as dt_type
+from app.core.security import hash_password
+from app.models.project import Project
+from app.models.project_member import ProjectMember as PM_
+
+
+class UserCreate(PydanticModel):
+    username: str = PydanticField(..., min_length=2, max_length=64)
+    password: str = PydanticField(..., min_length=6)
+    email: str = ""
+    display_name: Optional[str] = None
+
+
+class UserUpdate(PydanticModel):
+    email: Optional[str] = None
+    display_name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class UserDetailResponse(PydanticModel):
+    id: int; username: str; email: str; display_name: Optional[str] = None
+    is_active: bool; is_superuser: bool
+    global_roles: list[dict] = []; project_memberships: list[dict] = []
+    created_at: dt_type
+    model_config = {"from_attributes": True}
+
+
+@router.get("/api/v1/users", response_model=list[UserDetailResponse])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_superuser),
+):
+    result = await db.execute(select(User).order_by(User.id))
+    users = result.scalars().all()
+    out = []
+    for u in users:
+        roles = await get_user_global_roles(u.id, db)
+        memberships = await db.execute(
+            select(PM_, Role.name).join(Role, Role.id == PM_.role_id).where(PM_.user_id == u.id)
+        )
+        out.append(UserDetailResponse(
+            id=u.id, username=u.username, email=u.email, display_name=u.display_name,
+            is_active=u.is_active, is_superuser=u.is_superuser,
+            global_roles=[{"id": r.id, "name": r.name, "display_name": r.display_name} for r in roles],
+            project_memberships=[{"project_id": pm_.project_id, "role": rn} for pm_, rn in memberships.all()],
+            created_at=u.created_at,
+        ))
+    return out
+
+
+@router.post("/api/v1/users", status_code=201)
+async def create_user(
+    req: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_superuser),
+):
+    existing = await db.execute(select(User).where(User.username == req.username))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    user = User(
+        username=req.username, email=req.email or f"{req.username}@dataos.local",
+        hashed_password=hash_password(req.password), display_name=req.display_name or req.username,
+    )
+    db.add(user); await db.flush(); await db.refresh(user)
+    return {"id": user.id, "username": user.username, "message": "用户创建成功"}
+
+
+@router.put("/api/v1/users/{user_id}")
+async def update_user(
+    user_id: int, req: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_superuser),
+):
+    user = await db.get(User, user_id)
+    if not user: raise HTTPException(status_code=404, detail="用户不存在")
+    if req.email is not None: user.email = req.email
+    if req.display_name is not None: user.display_name = req.display_name
+    if req.is_active is not None: user.is_active = req.is_active
+    await db.commit()
+    return {"message": "用户已更新"}
+
+
+@router.delete("/api/v1/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_superuser),
+):
+    user = await db.get(User, user_id)
+    if not user: raise HTTPException(status_code=404, detail="用户不存在")
+    user.is_active = False
+    await db.commit()
+    return {"message": f"用户 '{user.username}' 已停用"}
