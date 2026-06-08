@@ -350,7 +350,7 @@ async def sync_datasource(
         raise HTTPException(status_code=403, detail="需要权限: datasource:sync")
 
     from app.models.sync_history import SyncHistory
-    from app.core.minio_client import write_dataframe, get_bronze_path
+    from app.core.minio_client import write_dataframe, read_dataframe, get_bronze_path
 
     # 记录同步开始
     sync_record = SyncHistory(
@@ -403,7 +403,18 @@ async def sync_datasource(
         else:
             sql = f"SELECT * FROM {req.table_name}"
 
-        df = pd.read_sql(sql, engine)
+        df_new = pd.read_sql(sql, engine)
+
+        # 增量同步: 与已有数据合并, 最新文件始终是全量
+        if req.sync_mode == "incremental" and last_sync and last_sync.storage_path:
+            try:
+                existing_key = last_sync.storage_path.replace(f"{settings.MINIO_BUCKET_BRONZE}/", "")
+                df_existing = read_dataframe(settings.MINIO_BUCKET_BRONZE, existing_key)
+                df = pd.concat([df_existing, df_new], ignore_index=True).drop_duplicates(keep="last")
+            except Exception:
+                df = df_new
+        else:
+            df = df_new
 
         # 记录增量位置
         if not df.empty and req.sync_column in df.columns:
@@ -415,11 +426,10 @@ async def sync_datasource(
 
         engine.dispose()
 
-        # 写入 MinIO (Bronze)
+        # 写入 MinIO (Bronze) — 始终写全量文件
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
         prefix = get_bronze_path(ds.project_id, ds_id, req.table_name, date_str)
-        mode = req.sync_mode or "full"
-        key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+        key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
         result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
 
         # 更新同步记录
@@ -489,7 +499,7 @@ async def sync_all_tables(
         raise HTTPException(status_code=403, detail="需要权限: datasource:sync")
 
     from app.models.sync_history import SyncHistory
-    from app.core.minio_client import write_dataframe, get_bronze_path
+    from app.core.minio_client import write_dataframe, read_dataframe, get_bronze_path
 
     table_names = req.table_names
     if not table_names:
@@ -534,7 +544,18 @@ async def sync_all_tables(
             else:
                 sql = f"SELECT * FROM {table_name}"
 
-            df = pd.read_sql(sql, engine)
+            df_new = pd.read_sql(sql, engine)
+
+            # 增量同步: 与已有数据合并, 确保最新文件是全量
+            if req.sync_mode == "incremental" and last_sync and last_sync.storage_path:
+                try:
+                    existing_key = last_sync.storage_path.replace(f"{settings.MINIO_BUCKET_BRONZE}/", "")
+                    df_existing = read_dataframe(settings.MINIO_BUCKET_BRONZE, existing_key)
+                    df = pd.concat([df_existing, df_new], ignore_index=True).drop_duplicates(keep="last")
+                except Exception:
+                    df = df_new
+            else:
+                df = df_new
 
             # 记录增量位置
             if not df.empty and req.sync_column in df.columns:
