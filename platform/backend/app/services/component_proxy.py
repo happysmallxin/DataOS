@@ -28,7 +28,7 @@ class ComponentClient:
     async def health(self) -> HealthResult:
         """健康检查 (子类按需覆盖)."""
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
                 resp = await client.get(f"{self.base_url}/health")
                 if resp.status_code < 500:
                     return HealthResult(healthy=True, message=f"HTTP {resp.status_code}")
@@ -38,12 +38,12 @@ class ComponentClient:
 
     async def get(self, path: str, **kwargs) -> httpx.Response:
         """GET 请求."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             return await client.get(f"{self.base_url}{path}", **kwargs)
 
     async def post(self, path: str, **kwargs) -> httpx.Response:
         """POST 请求."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             return await client.post(f"{self.base_url}{path}", **kwargs)
 
 
