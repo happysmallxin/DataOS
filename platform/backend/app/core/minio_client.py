@@ -108,14 +108,16 @@ def delete_objects(bucket: str, prefix: str) -> int:
     return len(objects)
 
 
-def get_bronze_path(datasource_id: int, table_name: str, date_str: str | None = None) -> str:
-    """生成 Bronze 层存储路径."""
+def get_bronze_path(project_id: int, datasource_id: int, table_name: str, date_str: str | None = None) -> str:
+    """生成 Bronze 层存储路径 — 按项目隔离."""
     date = date_str or datetime.now().strftime("%Y-%m-%d")
-    return f"datasources/{datasource_id}/{table_name}/{date}/"
+    return f"projects/{project_id}/datasources/{datasource_id}/{table_name}/{date}/"
 
 
 def get_silver_path(project_id: int, pipeline_name: str, date_str: str | None = None) -> str:
-    """生成 Silver 层存储路径."""
+    """生成 Silver 层存储路径 — 按项目隔离."""
+    date = date_str or datetime.now().strftime("%Y-%m-%d")
+    return f"projects/{project_id}/pipelines/{pipeline_name}/{date}/"
     date = date_str or datetime.now().strftime("%Y-%m-%d")
     safe_name = pipeline_name.lower().replace(" ", "_")
     return f"projects/{project_id}/{safe_name}/{date}/"

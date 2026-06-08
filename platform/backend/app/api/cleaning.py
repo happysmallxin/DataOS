@@ -289,7 +289,7 @@ async def run_pipeline(
             from app.core.minio_client import list_objects, read_dataframe, get_bronze_path
             from app.core.config import settings
 
-            prefix = get_bronze_path(pl.datasource_id, pl.source_table)
+            prefix = get_bronze_path(pl.project_id, pl.datasource_id, pl.source_table)
             objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
             if not objects:
                 raise HTTPException(

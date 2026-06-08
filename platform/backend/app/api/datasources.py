@@ -417,7 +417,7 @@ async def sync_datasource(
 
         # 写入 MinIO (Bronze)
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
-        prefix = get_bronze_path(ds_id, req.table_name, date_str)
+        prefix = get_bronze_path(ds.project_id, ds_id, req.table_name, date_str)
         mode = req.sync_mode or "full"
         key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
         result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
@@ -544,7 +544,7 @@ async def sync_all_tables(
             engine.dispose()
 
             date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
-            prefix = get_bronze_path(ds_id, table_name, date_str)
+            prefix = get_bronze_path(ds.project_id, ds_id, table_name, date_str)
             mode = req.sync_mode or "full"
             key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
             result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
