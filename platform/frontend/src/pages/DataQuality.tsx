@@ -51,7 +51,7 @@ export default function DataQuality() {
   const fetchRules = async () => {
     setLoading(true)
     try {
-      const resp = await apiClient.get('/quality/rules')
+      const resp = await apiClient.get('/quality/rule-templates')
       // Transform templates into rules with mock execution results
       const templates = resp.data || []
       setRules(templates.map((t: any, i: number) => ({
