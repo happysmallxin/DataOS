@@ -212,6 +212,7 @@ SUPPORTED_SOURCE_TYPES = [
     {"type": "api", "label": "REST API", "category": "外部接口"},
     {"type": "crawler", "label": "网页爬虫", "category": "数据采集"},
     {"type": "file", "label": "文件上传 (CSV/Excel/JSON)", "category": "本地文件"},
+    {"type": "sqlfile", "label": "离线 SQL 文件", "category": "本地文件"},
 ]
 
 
@@ -243,6 +244,22 @@ def _build_sqlalchemy_url(ds: DataSource) -> str:
         return f"postgresql+psycopg2://{cfg.get('username')}:{cfg.get('password')}@{cfg.get('host')}:{cfg.get('port', 5432)}/{cfg.get('database')}"
     elif t == "clickhouse":
         return f"clickhouse+clickhouse-connect://{cfg.get('username')}:{cfg.get('password')}@{cfg.get('host')}:{cfg.get('port', 8123)}/{cfg.get('database')}"
+    elif t == "sqlfile":
+        # 从 config.sql_content 创建临时 SQLite 数据库
+        import tempfile, os
+        sql_content = cfg.get("sql_content", "")
+        if not sql_content:
+            raise HTTPException(status_code=400, detail="SQL 文件内容为空, 请在 config.sql_content 中提供 SQL 语句")
+        tmpdir = tempfile.mkdtemp(prefix="dataos_sql_")
+        db_path = os.path.join(tmpdir, "data.db")
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.executescript(sql_content)
+        conn.commit()
+        conn.close()
+        # 保存路径以便后续清理
+        ds.config["_sqlite_tmpdir"] = tmpdir
+        return f"sqlite:///{db_path}"
     raise HTTPException(status_code=400, detail=f"数据源类型 '{t}' 暂不支持 SQL 连接，请通过 API 直接传数据")
 
 
@@ -259,7 +276,7 @@ async def test_connection(
 
     try:
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 10})
+        engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
         with engine.connect() as conn:
             result = conn.execute(text("SELECT 1")).scalar()
         engine.dispose()
@@ -283,7 +300,7 @@ async def list_source_tables(
 
     try:
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 10})
+        engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
         inspector = inspect(engine)
         tables = []
         for table_name in inspector.get_table_names():
@@ -311,7 +328,7 @@ async def preview_table(
 
     try:
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 10})
+        engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
         df = pd.read_sql(f"SELECT * FROM {table_name} LIMIT 100", engine)
         engine.dispose()
         return {
@@ -377,7 +394,7 @@ async def sync_datasource(
     try:
         # 连接源
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 30})
+        engine = create_engine(url, connect_args={"connect_timeout": 30} if "sqlite" not in url else {})
 
         # 增量同步: 查询上次同步位置
         if req.sync_mode == "incremental":
@@ -510,7 +527,7 @@ async def sync_all_tables(
     if not table_names:
         # 如果没指定, 获取所有表
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 10})
+        engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
         inspector = inspect(engine)
         table_names = inspector.get_table_names()
         engine.dispose()
@@ -529,7 +546,7 @@ async def sync_all_tables(
         start = time.time()
         try:
             url = _build_sqlalchemy_url(ds)
-            engine = create_engine(url, connect_args={"connect_timeout": 30})
+            engine = create_engine(url, connect_args={"connect_timeout": 30} if "sqlite" not in url else {})
 
             # 增量同步逻辑
             if req.sync_mode == "incremental":

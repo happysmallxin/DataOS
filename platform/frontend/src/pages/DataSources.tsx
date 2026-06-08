@@ -24,7 +24,7 @@ const sourceTypeOptions = [
   { value: 'kafka', label: 'Kafka' }, { value: 'elasticsearch', label: 'Elasticsearch' },
   { value: 'api', label: 'REST API' }, { value: 's3', label: 'S3/MinIO' },
   { value: 'crawler', label: '网页爬虫' }, { value: 'file', label: '文件上传' },
-  { value: 'clickhouse', label: 'ClickHouse' },
+  { value: 'sqlfile', label: '离线 SQL 文件' }, { value: 'clickhouse', label: 'ClickHouse' },
 ]
 
 export default function DataSources() {
@@ -74,17 +74,20 @@ export default function DataSources() {
   const handleCreate = async () => {
     try {
       const values = await form.validateFields()
+      const config: Record<string, unknown> = values.source_type === 'sqlfile'
+        ? { sql_content: values.sql_content || '' }
+        : {
+            host: values.host || 'localhost',
+            port: values.port || 3306,
+            database: values.database || '',
+            username: values.username || '',
+            password: values.password || '',
+          }
       await apiClient.post('/datasources', {
         project_id: values.project_id || 1,
         name: values.name,
         source_type: values.source_type,
-        config: {
-          host: values.host || 'localhost',
-          port: values.port || 3306,
-          database: values.database || '',
-          username: values.username || '',
-          password: values.password || '',
-        },
+        config,
         description: values.description,
       })
       message.success('数据源创建成功')
@@ -264,6 +267,13 @@ export default function DataSources() {
           </Form.Item>
           <Form.Item name="password" label="密码">
             <Input.Password placeholder="数据库密码" />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.source_type !== cur.source_type}>
+            {({ getFieldValue }) => getFieldValue('source_type') === 'sqlfile' && (
+              <Form.Item name="sql_content" label="SQL 内容" rules={[{ required: true, message: '请粘贴 SQL 文件内容' }]}>
+                <Input.TextArea rows={8} placeholder={`CREATE TABLE users (id INT, name TEXT);\nINSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');`} />
+              </Form.Item>
+            )}
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />

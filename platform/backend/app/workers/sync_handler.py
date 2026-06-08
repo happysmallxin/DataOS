@@ -57,7 +57,7 @@ def handle_sync_job(redis_client, job_id: str, **params) -> dict:
             else:
                 raise ValueError(f"不支持的数据源类型: {ds.source_type}")
 
-            engine = create_engine(url, connect_args={"connect_timeout": 30})
+            engine = create_engine(url, connect_args={"connect_timeout": 30} if "sqlite" not in url else {})
 
             if sync_mode == "incremental":
                 last_sync = db.query(SyncHistory).filter(
