@@ -360,7 +360,15 @@ export default function ProjectDetail() {
 
   const handleCreateProcess = async (values: any) => {
     try {
-      await apiClient.post(`/projects/${projectId}/domains/${values.domain_id}/processes`, values)
+      await apiClient.post(`/projects/${projectId}/domains/${values.domain_id}/processes`, {
+        name: values.name,
+        display_name: values.display_name,
+        table_type: values.table_type,
+        source_tables: values.source_tables || null,
+        target_tables: values.target_tables || null,
+        view_sql: values.view_sql || null,
+        description: values.description,
+      })
       message.success('业务过程已创建')
       setProcessFormOpen(false); processForm.resetFields()
       fetchProcesses()
@@ -884,6 +892,16 @@ export default function ProjectDetail() {
               { value: 'DWD', label: 'DWD 明细表' }, { value: 'DWS', label: 'DWS 汇总表' },
               { value: 'ADS', label: 'ADS 应用表' },
             ]} />
+          </Form.Item>
+          <Form.Item name="source_tables" label="源表">
+            <Select mode="tags" placeholder="输入 PG Gold 表名，如: clean_users" />
+          </Form.Item>
+          <Form.Item name="target_tables" label="目标表/视图">
+            <Select mode="tags" placeholder="如: dwd_user_register 或 v_user_profile" />
+          </Form.Item>
+          <Form.Item name="view_sql" label="自定义 SQL (可选, 用于创建视图)"
+            extra="填入时自动创建视图而非物理表，如: SELECT id, username, email FROM clean_users">
+            <Input.TextArea rows={4} placeholder="SELECT id AS user_id, username, email, display_name FROM clean_users" style={{ fontFamily: 'monospace', fontSize: 13 }} />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
