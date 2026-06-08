@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer, Checkbox } from 'antd'
+import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer, Checkbox, Upload } from 'antd'
 import {
   PlusOutlined, ReloadOutlined, DatabaseOutlined, ApiOutlined,
-  SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined, HistoryOutlined,
+  SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined, HistoryOutlined, UploadOutlined, InboxOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import apiClient from '../utils/api'
@@ -74,22 +74,45 @@ export default function DataSources() {
   const handleCreate = async () => {
     try {
       const values = await form.validateFields()
-      const config: Record<string, unknown> = values.source_type === 'sqlfile'
-        ? { sql_content: values.sql_content || '' }
-        : {
+      const isSqlFile = values.source_type === 'sqlfile'
+
+      if (isSqlFile && values.sql_file) {
+        // 文件上传模式
+        const file = values.sql_file
+        if (file instanceof File) {
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('name', values.name)
+          fd.append('project_id', String(values.project_id || 1))
+          fd.append('description', values.description || '')
+          await apiClient.post('/datasources/upload', fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        } else {
+          // 粘贴 SQL 模式
+          await apiClient.post('/datasources', {
+            project_id: values.project_id || 1,
+            name: values.name,
+            source_type: values.source_type,
+            config: { sql_content: values.sql_content || '' },
+            description: values.description,
+          })
+        }
+      } else {
+        await apiClient.post('/datasources', {
+          project_id: values.project_id || 1,
+          name: values.name,
+          source_type: values.source_type,
+          config: {
             host: values.host || 'localhost',
             port: values.port || 3306,
             database: values.database || '',
             username: values.username || '',
             password: values.password || '',
-          }
-      await apiClient.post('/datasources', {
-        project_id: values.project_id || 1,
-        name: values.name,
-        source_type: values.source_type,
-        config,
-        description: values.description,
-      })
+          },
+          description: values.description,
+        })
+      }
       message.success('数据源创建成功')
       setCreateOpen(false)
       form.resetFields()
@@ -270,9 +293,22 @@ export default function DataSources() {
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.source_type !== cur.source_type}>
             {({ getFieldValue }) => getFieldValue('source_type') === 'sqlfile' && (
-              <Form.Item name="sql_content" label="SQL 内容" rules={[{ required: true, message: '请粘贴 SQL 文件内容' }]}>
-                <Input.TextArea rows={8} placeholder={`CREATE TABLE users (id INT, name TEXT);\nINSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');`} />
-              </Form.Item>
+              <>
+                <Form.Item name="sql_file" label="上传 SQL 文件" valuePropName="fileList" getValueFromEvent={(e: any) => e?.fileList?.slice(-1)}>
+                  <Upload.Dragger accept=".sql,.txt" maxCount={1} beforeUpload={() => false}
+                    style={{ padding: '16px 0' }}>
+                    <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                    <p className="ant-upload-text">点击或拖拽 SQL 文件到此区域</p>
+                    <p className="ant-upload-hint">支持 .sql / .txt 文件</p>
+                  </Upload.Dragger>
+                </Form.Item>
+                <div style={{ textAlign: 'center', margin: '8px 0' }}>
+                  <Text type="secondary">— 或者直接粘贴 SQL 内容 —</Text>
+                </div>
+                <Form.Item name="sql_content" label="SQL 内容">
+                  <Input.TextArea rows={6} placeholder={`CREATE TABLE users (id INT, name TEXT);\nINSERT INTO users VALUES (1, 'Alice'), (2, 'Bob');`} />
+                </Form.Item>
+              </>
             )}
           </Form.Item>
           <Form.Item name="description" label="描述">

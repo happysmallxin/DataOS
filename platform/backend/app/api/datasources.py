@@ -4,7 +4,7 @@ RBAC 权限: 所有操作需要对应项目的成员角色 + resource:action 权
 配置加密: 入库前加密敏感字段, 出库时解密 (需权限校验).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,6 +141,73 @@ async def create_datasource(
         status=ds.status,
         last_sync_at=ds.last_sync_at,
         created_at=ds.created_at,
+    )
+
+
+@router.post("/upload", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
+async def upload_sqlfile(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    project_id: int = Form(...),
+    description: str = Form(default=""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传离线 SQL 文件, 自动创建 sqlfile 数据源."""
+    # 权限检查
+    global_roles = await get_user_global_roles(current_user.id, db)
+    is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
+    if not is_admin:
+        from app.models.project_member import ProjectMember as PM
+        member_row = await db.execute(
+            select(PM).where(PM.project_id == project_id, PM.user_id == current_user.id)
+        )
+        if not member_row.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="你不是该项目成员")
+
+    # 读取文件内容
+    content = await file.read()
+    try:
+        sql_content = content.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            sql_content = content.decode("gbk")
+        except UnicodeDecodeError:
+            sql_content = content.decode("latin-1")
+
+    if not sql_content.strip():
+        raise HTTPException(status_code=400, detail="SQL 文件内容为空")
+
+    # 检查同名
+    existing = await db.execute(
+        select(DataSource).where(DataSource.project_id == project_id, DataSource.name == name)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"项目内已存在同名数据源 '{name}'")
+
+    ds = DataSource(
+        project_id=project_id,
+        name=name,
+        source_type="sqlfile",
+        config={"sql_content": sql_content, "original_filename": file.filename},
+        description=description or f"从 {file.filename} 导入",
+    )
+    db.add(ds)
+    await db.flush()
+    await db.refresh(ds)
+
+    db.add(AuditLog(user_id=current_user.id, project_id=project_id,
+        resource="datasource", action="create",
+        target_id=ds.id, target_name=ds.name,
+        detail={"source_type": "sqlfile", "file": file.filename, "size": len(content)}))
+
+    await db.commit()
+
+    safe_config = {k: ("***" if k in ("password", "secret", "token") else (v[:50] + "..." if k == "sql_content" and len(str(v)) > 50 else v))
+                   for k, v in ds.config.items()}
+    return DataSourceResponse(
+        id=ds.id, project_id=ds.project_id, name=ds.name, source_type=ds.source_type,
+        config=safe_config, status=ds.status, last_sync_at=ds.last_sync_at, created_at=ds.created_at,
     )
 
 
