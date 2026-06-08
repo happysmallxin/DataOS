@@ -608,7 +608,7 @@ export default function ProjectDetail() {
                     </Space>
                   }>
                   <Row gutter={16}>
-                    <Col span={6}><Text type="secondary">数据源</Text><br /><Text>{pl.datasource_id ? `#${pl.datasource_id}` : '未关联'}</Text></Col>
+                    <Col span={6}><Text type="secondary">数据源</Text><br /><Text>{pl.datasource_id ? (datasources.find(d => d.id === pl.datasource_id)?.name || `#${pl.datasource_id}`) : '未关联'}</Text></Col>
                     <Col span={6}><Text type="secondary">源表</Text><br /><Text>{pl.source_table || '—'}</Text></Col>
                     <Col span={6}><Text type="secondary">目标表</Text><br /><Text code>{pl.target_table || '—'}</Text></Col>
                     <Col span={6}><Text type="secondary">版本</Text><br /><Text>v{pl.version}</Text></Col>

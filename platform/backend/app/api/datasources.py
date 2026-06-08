@@ -65,10 +65,20 @@ async def list_datasources(
 async def create_datasource(
     req: DataSourceCreate,
     current_user: User = Depends(get_current_user),
-    _: User | None = Depends(require_project_role("project_owner", "editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """注册新数据源 — 自动加密敏感配置."""
+    # 手动权限检查: project_id 在 body 中
+    global_roles = await get_user_global_roles(current_user.id, db)
+    is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
+    if not is_admin:
+        from app.models.project_member import ProjectMember as PM
+        member_row = await db.execute(
+            select(PM).where(PM.project_id == req.project_id, PM.user_id == current_user.id)
+        )
+        if not member_row.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="你不是该项目成员")
+
     # 检查同项目下是否存在同名数据源 (P0: 唯一约束)
     existing = await db.execute(
         select(DataSource).where(
