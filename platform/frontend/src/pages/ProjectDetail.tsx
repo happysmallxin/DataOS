@@ -100,6 +100,15 @@ export default function ProjectDetail() {
   const [plRunning, setPlRunning] = useState<number | null>(null)
   const [plResult, setPlResult] = useState<any>(null)
 
+  // 数据建模
+  const [domains, setDomains] = useState<any[]>([])
+  const [processes, setProcesses] = useState<any[]>([])
+  const [domainFormOpen, setDomainFormOpen] = useState(false)
+  const [processFormOpen, setProcessFormOpen] = useState(false)
+  const [domainForm] = Form.useForm()
+  const [processForm] = Form.useForm()
+  const [selectedDomain, setSelectedDomain] = useState<any>(null)
+
   // audit
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
 
@@ -170,15 +179,30 @@ export default function ProjectDetail() {
     } catch { /* ignore */ }
   }, [projectId])
 
+  const fetchDomains = useCallback(async () => {
+    try {
+      const resp = await apiClient.get(`/projects/${projectId}/domains`)
+      setDomains(resp.data || [])
+    } catch { /* ignore */ }
+  }, [projectId])
+
+  const fetchProcesses = useCallback(async () => {
+    try {
+      const resp = await apiClient.get(`/projects/${projectId}/processes`)
+      setProcesses(resp.data || [])
+    } catch { /* ignore */ }
+  }, [projectId])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     await Promise.all([
       fetchProject(), fetchMembers(), fetchDatasources(), fetchAuditLogs(),
       fetchSourceTypes(), fetchCrawlerCount(), fetchQualityRuleCount(), fetchPipelines(),
+      fetchDomains(), fetchProcesses(),
     ])
     setLoading(false)
   }, [fetchProject, fetchMembers, fetchDatasources, fetchAuditLogs, fetchSourceTypes,
-      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelines])
+      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelines, fetchDomains, fetchProcesses])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -313,6 +337,41 @@ export default function ProjectDetail() {
       await apiClient.delete(`/cleaning/pipelines/${plId}`)
       message.success('Pipeline 已删除')
       fetchPipelines()
+    } catch { message.error('删除失败') }
+  }
+
+  // ---- 数据建模 handlers ----
+  const handleCreateDomain = async (values: any) => {
+    try {
+      await apiClient.post(`/projects/${projectId}/domains`, values)
+      message.success('数据域已创建')
+      setDomainFormOpen(false); domainForm.resetFields()
+      fetchDomains()
+    } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
+  }
+
+  const handleDeleteDomain = async (id: number) => {
+    try {
+      await apiClient.delete(`/projects/${projectId}/domains/${id}`)
+      message.success('数据域已删除')
+      fetchDomains()
+    } catch (err: any) { message.error(err.response?.data?.detail || '删除失败') }
+  }
+
+  const handleCreateProcess = async (values: any) => {
+    try {
+      await apiClient.post(`/projects/${projectId}/domains/${values.domain_id}/processes`, values)
+      message.success('业务过程已创建')
+      setProcessFormOpen(false); processForm.resetFields()
+      fetchProcesses()
+    } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
+  }
+
+  const handleDeleteProcess = async (id: number) => {
+    try {
+      await apiClient.delete(`/projects/${projectId}/processes/${id}`)
+      message.success('业务过程已删除')
+      fetchProcesses()
     } catch { message.error('删除失败') }
   }
 
@@ -636,7 +695,59 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 4: 成员管理 ----
+    // ---- Tab 4: 数据建模 ----
+    {
+      key: 'modeling',
+      label: '数据建模',
+      children: (
+        <div>
+          <Card title="数据域" size="small" style={{ marginBottom: 16 }}
+            extra={<Button size="small" icon={<PlusOutlined />} onClick={() => { domainForm.resetFields(); setDomainFormOpen(true) }}>新增数据域</Button>}>
+            {domains.length === 0 ? <Text type="secondary">暂无数据域，点击新增</Text> : (
+              domains.map((d: any) => (
+                <div key={d.id} style={{ padding: '8px 12px', margin: '4px 0', background: '#fafafa', borderRadius: 6,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <Text strong>📁 {d.display_name}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{d.name}</Text>
+                    {d.description && <Text type="secondary" style={{ fontSize: 12 }}>— {d.description}</Text>}
+                  </Space>
+                  <Popconfirm title="确认删除?" onConfirm={() => handleDeleteDomain(d.id)}>
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </div>
+              ))
+            )}
+          </Card>
+
+          <Card title="业务过程" size="small"
+            extra={<Button size="small" icon={<PlusOutlined />} onClick={() => { processForm.resetFields(); setProcessFormOpen(true) }}>新增业务过程</Button>}>
+            {processes.length === 0 ? <Text type="secondary">暂无业务过程，点击新增</Text> : (
+              <Table dataSource={processes} rowKey="id" size="small" pagination={false}
+                columns={[
+                  { title: '名称', dataIndex: 'display_name', width: 120, render: (v: string, r: any) => <Text strong>{v}</Text> },
+                  { title: '标识', dataIndex: 'name', width: 100, render: (v: string) => <Text code>{v}</Text> },
+                  { title: '数据域', dataIndex: 'domain_id', width: 80,
+                    render: (v: number) => domains.find(d => d.id === v)?.display_name || `#${v}` },
+                  { title: '类型', dataIndex: 'table_type', width: 70, render: (v: string) => {
+                    const colors: Record<string, string> = { DIM: 'blue', FACT: 'orange', DWD: 'green', DWS: 'purple', ADS: 'red' }
+                    return <Tag color={colors[v] || 'default'}>{v}</Tag>
+                  }},
+                  { title: '源表', dataIndex: 'source_tables', ellipsis: true, render: (v: any) => v ? (v as string[]).join(', ') : '—' },
+                  { title: '目标表', dataIndex: 'target_tables', ellipsis: true, render: (v: any) => v ? (v as string[]).join(', ') : '—' },
+                  { title: '操作', width: 60, render: (_: any, r: any) => (
+                    <Popconfirm title="确认删除?" onConfirm={() => handleDeleteProcess(r.id)}>
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  )},
+                ]} />
+            )}
+          </Card>
+        </div>
+      ),
+    },
+
+    // ---- Tab 5: 成员管理 ----
     {
       key: 'members',
       label: `成员 (${members.length})`,
@@ -662,7 +773,7 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 5: 审计日志 ----
+    // ---- Tab 6: 审计日志 ----
     {
       key: 'audit',
       label: '审计日志',
@@ -729,6 +840,50 @@ export default function ProjectDetail() {
           </Form.Item>
           <Form.Item name="target_table" label="输出表名 (PG Gold)">
             <Input placeholder="如: clean_users" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ======== 数据域弹窗 ======== */}
+      <Modal title="新增数据域" open={domainFormOpen}
+        onCancel={() => { setDomainFormOpen(false); domainForm.resetFields() }}
+        onOk={() => domainForm.submit()}>
+        <Form form={domainForm} layout="vertical" onFinish={handleCreateDomain}>
+          <Form.Item name="name" label="标识" rules={[{ required: true }]}>
+            <Input placeholder="trade_domain" />
+          </Form.Item>
+          <Form.Item name="display_name" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="交易域" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ======== 业务过程弹窗 ======== */}
+      <Modal title="新增业务过程" open={processFormOpen}
+        onCancel={() => { setProcessFormOpen(false); processForm.resetFields() }}
+        onOk={() => processForm.submit()}>
+        <Form form={processForm} layout="vertical" onFinish={handleCreateProcess}>
+          <Form.Item name="domain_id" label="数据域" rules={[{ required: true }]}>
+            <Select placeholder="选择数据域" options={domains.filter((d: any) => !d.children || d.children.length === 0).map((d: any) => ({ value: d.id, label: `${d.display_name} (${d.name})` }))} />
+          </Form.Item>
+          <Form.Item name="name" label="标识" rules={[{ required: true }]}>
+            <Input placeholder="order_create" />
+          </Form.Item>
+          <Form.Item name="display_name" label="名称" rules={[{ required: true }]}>
+            <Input placeholder="订单创建" />
+          </Form.Item>
+          <Form.Item name="table_type" label="表类型" initialValue="DWD">
+            <Select options={[
+              { value: 'DIM', label: 'DIM 维度表' }, { value: 'FACT', label: 'FACT 事实表' },
+              { value: 'DWD', label: 'DWD 明细表' }, { value: 'DWS', label: 'DWS 汇总表' },
+              { value: 'ADS', label: 'ADS 应用表' },
+            ]} />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
