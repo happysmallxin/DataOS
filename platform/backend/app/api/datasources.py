@@ -1,10 +1,10 @@
-"""数据源管理 API — 对标 DataWorks 全域数据集成.
+"""数据源管理 API - 对标 DataWorks 全域数据集成.
 
 RBAC 权限: 所有操作需要对应项目的成员角色 + resource:action 权限.
 配置加密: 入库前加密敏感字段, 出库时解密 (需权限校验).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,7 +67,7 @@ async def create_datasource(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """注册新数据源 — 自动加密敏感配置."""
+    """注册新数据源 - 自动加密敏感配置."""
     # 手动权限检查: project_id 在 body 中
     global_roles = await get_user_global_roles(current_user.id, db)
     is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
@@ -150,7 +150,7 @@ async def delete_datasource(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """删除数据源 — 需要 datasource:delete 权限 + project_owner 角色."""
+    """删除数据源 - 需要 datasource:delete 权限 + project_owner 角色."""
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
@@ -252,7 +252,7 @@ async def test_connection(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """测试数据源连接 — 解密配置并尝试连接."""
+    """测试数据源连接 - 解密配置并尝试连接."""
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
@@ -332,23 +332,31 @@ async def sync_datasource(
     req: SyncRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    async_mode: bool = Query(False, alias="async"),
 ):
-    """全量同步数据源表 → MinIO (Bronze 层).
+    """同步数据源表 -> MinIO (Bronze 层).
 
-    1. 连接数据源, 读取指定表全量数据
-    2. 以 Parquet 格式写入 MinIO Bronze 桶
-    3. 记录 SyncHistory 到数据库
+    支持异步模式: ?async=true 时立即返回 job_id, 后台执行.
     """
+    # 权限校验
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
-    # 权限校验: 需要 datasource:sync
     from app.api.deps import get_user_permissions
     perms = await get_user_permissions(current_user.id, db, ds.project_id)
     if "datasource:sync" not in perms:
         raise HTTPException(status_code=403, detail="需要权限: datasource:sync")
 
+    # 异步模式 -> 入队
+    if async_mode:
+        from app.core.job_queue import enqueue_job
+        job_id = await enqueue_job("sync", ds_id=ds_id, table_name=req.table_name,
+                                    sync_mode=req.sync_mode, sync_column=req.sync_column,
+                                    user_id=current_user.id)
+        return {"job_id": job_id, "status": "pending", "message": "同步任务已提交, 后台执行中"}
+
+    # -- 同步执行: 连接源库 -> 读取 -> Parquet -> MinIO Bronze -> SyncHistory --
     from app.models.sync_history import SyncHistory
     from app.core.minio_client import write_dataframe, read_dataframe, get_bronze_path
 
@@ -426,7 +434,7 @@ async def sync_datasource(
 
         engine.dispose()
 
-        # 写入 MinIO (Bronze) — 始终写全量文件
+        # 写入 MinIO (Bronze) - 始终写全量文件
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
         prefix = get_bronze_path(ds.project_id, ds_id, req.table_name, date_str)
         key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
@@ -485,10 +493,7 @@ async def sync_all_tables(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """批量同步数据源的多张表 → MinIO (Bronze 层).
-
-    一次请求同步多张表, 返回每张表的同步结果。
-    """
+    """批量同步数据源的多张表到 MinIO Bronze 层, 一次请求同步多张表, 返回每张表的同步结果."""
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit, crawlers
+from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit, crawlers, jobs
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 
@@ -321,6 +321,13 @@ app.include_router(cleaning.router)
 app.include_router(permissions.router)
 app.include_router(audit.router)
 app.include_router(crawlers.router)
+app.include_router(jobs.router)
+
+# 注册 Worker 处理函数 + 启动后台线程
+from app.workers import init_handlers
+from app.core.job_queue import start_worker
+init_handlers()
+start_worker()
 
 
 @app.get("/")
