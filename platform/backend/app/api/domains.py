@@ -1,4 +1,4 @@
-"""数据建模 API — 数据域 + 业务过程 CRUD (对齐 Dataphin OneData)."""
+"""数据建模 API — 数据域 + 业务过程 CRUD + Gold表检查 + DDL生成 (对齐 Dataphin OneData)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, GLOBAL_ADMIN_ROLES, get_user_global_roles
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.models.data_domain import DataDomain, BusinessProcess
@@ -68,6 +69,44 @@ class ProcessResponse(BaseModel):
     table_type: str; schedule_cron: Optional[str] = None
     created_at: str; updated_at: str
     model_config = {"from_attributes": True}
+
+
+# ---- Gold 表结构检查 ----
+
+@router.get("/api/v1/projects/{project_id}/gold-tables")
+async def list_gold_tables(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """获取 PG Gold 中清洗后的表列表."""
+    from sqlalchemy import create_engine, inspect, text
+    try:
+        engine = create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+        inspector = inspect(engine)
+        tables = [t for t in inspector.get_table_names() if not t.startswith("_") and not t.startswith("directus_")]
+        engine.dispose()
+        return tables
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"无法连接 Gold 数据库: {e}")
+
+
+@router.get("/api/v1/projects/{project_id}/gold-tables/{table_name}/columns")
+async def get_gold_table_columns(
+    project_id: int, table_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """获取 Gold 表的列定义."""
+    from sqlalchemy import create_engine, inspect
+    try:
+        engine = create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+        inspector = inspect(engine)
+        cols = [{"name": c["name"], "type": str(c["type"]), "nullable": c.get("nullable", True),
+                 "default": str(c.get("default")) if c.get("default") else None}
+                for c in inspector.get_columns(table_name)]
+        engine.dispose()
+        return {"table": table_name, "columns": cols}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"无法读取表结构: {e}")
 
 
 # ---- 数据域 CRUD ----
@@ -160,6 +199,7 @@ async def create_process(
     project_id: int, domain_id: int, req: ProcessCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    auto_create_table: bool = Query(True),  # 是否自动创建目标表
 ):
     domain = await db.get(DataDomain, domain_id)
     if not domain: raise HTTPException(status_code=404, detail="数据域不存在")
@@ -167,10 +207,72 @@ async def create_process(
         select(BusinessProcess).where(BusinessProcess.project_id == project_id, BusinessProcess.name == req.name)
     )
     if existing.scalar_one_or_none(): raise HTTPException(status_code=409, detail=f"业务过程 '{req.name}' 已存在")
+
     bp = BusinessProcess(project_id=project_id, domain_id=domain_id, **req.model_dump())
     db.add(bp); await db.flush(); await db.refresh(bp)
+
+    result = {"id": bp.id, "name": bp.name, "display_name": bp.display_name, "table_type": bp.table_type, "ddl": None, "pipeline_id": None}
+
+    # 自动创建目标表 + Pipeline
+    if auto_create_table and req.source_tables and req.target_tables:
+        from sqlalchemy import create_engine, inspect as sa_inspect, text
+        try:
+            engine = create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+            inspector = sa_inspect(engine)
+
+            # 1. 读取源表列
+            source_table = req.source_tables[0]
+            src_cols = inspector.get_columns(source_table)
+            target_table = req.target_tables[0]
+
+            # 2. 生成 DDL (排除敏感字段 hashed_password, password, secret, token, api_key)
+            excluded = {"hashed_password", "password", "secret", "token", "api_key", "is_superuser"}
+            col_defs = []
+            for c in src_cols:
+                if c["name"] in excluded:
+                    continue
+                col_type = str(c["type"])
+                nullable = "" if c.get("nullable") is False else "NULL"
+                col_defs.append(f'  "{c["name"]}" {col_type} {nullable}')
+
+            if not any("PRIMARY KEY" in d.upper() for d in col_defs) and any("id" in d.lower() for d in col_defs):
+                for i, d in enumerate(col_defs):
+                    if d.strip().startswith('"id"'):
+                        col_defs[i] = d.replace(" NULL", " NOT NULL") + " PRIMARY KEY"
+                        break
+
+            ddl = f'CREATE TABLE IF NOT EXISTS {target_table} (\n' + ",\n".join(col_defs) + "\n);"
+            result["ddl"] = ddl
+
+            # 3. 执行 DDL
+            with engine.connect() as conn:
+                conn.execute(text(ddl))
+                conn.commit()
+            engine.dispose()
+            result["table_created"] = target_table
+
+            # 4. 自动生成 Pipeline
+            from app.models.pipeline import CleaningPipeline
+            stages = [{"type": "standardize", "config": {"column": c["name"], "operation": "trim"}}
+                      for c in src_cols if c["type"].__class__.__name__ == "String" and c["name"] not in excluded][:3]
+
+            pl = CleaningPipeline(
+                project_id=project_id, name=f"{bp.name}_pipeline",
+                description=f"自动生成: {source_table} -> {target_table}",
+                source_table=source_table, target_table=target_table,
+                stages=stages if stages else [{"type": "standardize", "config": {"column": "id", "operation": "trim"}}],
+                created_by=current_user.id, status="draft",
+            )
+            db.add(pl)
+            await db.flush()
+            result["pipeline_id"] = pl.id
+            result["pipeline_name"] = pl.name
+
+        except Exception as e:
+            result["ddl_error"] = str(e)
+
     await db.commit()
-    return {"id": bp.id, "name": bp.name, "display_name": bp.display_name, "table_type": bp.table_type}
+    return result
 
 
 @router.get("/api/v1/projects/{project_id}/processes")
