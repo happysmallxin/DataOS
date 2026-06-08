@@ -36,6 +36,9 @@ class SyncHistory(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # 耗时 (秒)
     duration_seconds: Mapped[Optional[float]] = mapped_column(nullable=True)
+    # 增量同步: 跟踪列 + 上次同步到的值
+    sync_column: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    last_sync_value: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     # 操作人
     triggered_by: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False

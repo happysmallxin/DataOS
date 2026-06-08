@@ -367,16 +367,59 @@ async def sync_datasource(
 
     start = time.time()
     try:
-        # 连接源并读取数据
+        # 连接源
         url = _build_sqlalchemy_url(ds)
         engine = create_engine(url, connect_args={"connect_timeout": 30})
-        df = pd.read_sql(f"SELECT * FROM {req.table_name}", engine)
+
+        # 增量同步: 查询上次同步位置
+        if req.sync_mode == "incremental":
+            from app.models.sync_history import SyncHistory as SH
+            last = await db.execute(
+                select(SH).where(
+                    SH.datasource_id == ds_id,
+                    SH.table_name == req.table_name,
+                    SH.status == "success",
+                ).order_by(SH.created_at.desc()).limit(1)
+            )
+            last_sync = last.scalar_one_or_none()
+
+            if last_sync and last_sync.last_sync_value:
+                # 检查跟踪列是否存在
+                try:
+                    cols = pd.read_sql(
+                        f"SELECT column_name FROM information_schema.columns WHERE table_name='{req.table_name}' AND column_name='{req.sync_column}'",
+                        engine
+                    )
+                except Exception:
+                    cols = pd.DataFrame()
+
+                if not cols.empty:
+                    sql = f"SELECT * FROM {req.table_name} WHERE {req.sync_column} > '{last_sync.last_sync_value}'"
+                    sync_record.sync_column = req.sync_column
+                else:
+                    sql = f"SELECT * FROM {req.table_name}"
+            else:
+                sql = f"SELECT * FROM {req.table_name}"
+        else:
+            sql = f"SELECT * FROM {req.table_name}"
+
+        df = pd.read_sql(sql, engine)
+
+        # 记录增量位置
+        if not df.empty and req.sync_column in df.columns:
+            sync_record.sync_column = req.sync_column
+            if pd.api.types.is_numeric_dtype(df[req.sync_column]):
+                sync_record.last_sync_value = str(df[req.sync_column].max())
+            else:
+                sync_record.last_sync_value = str(df[req.sync_column].max())
+
         engine.dispose()
 
         # 写入 MinIO (Bronze)
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
         prefix = get_bronze_path(ds_id, req.table_name, date_str)
-        key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+        mode = req.sync_mode or "full"
+        key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
         result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
 
         # 更新同步记录
@@ -421,6 +464,8 @@ async def sync_datasource(
 
 class SyncAllRequest(PydanticBaseModel):
     table_names: list[str] = []
+    sync_mode: str = "full"
+    sync_column: str = "updated_at"
 
 
 @router.post("/{ds_id}/sync-all")
@@ -470,12 +515,38 @@ async def sync_all_tables(
         try:
             url = _build_sqlalchemy_url(ds)
             engine = create_engine(url, connect_args={"connect_timeout": 30})
-            df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+
+            # 增量同步逻辑
+            if req.sync_mode == "incremental":
+                last = await db.execute(
+                    select(SyncHistory).where(
+                        SyncHistory.datasource_id == ds_id,
+                        SyncHistory.table_name == table_name,
+                        SyncHistory.status == "success",
+                    ).order_by(SyncHistory.created_at.desc()).limit(1)
+                )
+                last_sync = last.scalar_one_or_none()
+                if last_sync and last_sync.last_sync_value:
+                    sql = f"SELECT * FROM {table_name} WHERE {req.sync_column} > '{last_sync.last_sync_value}'"
+                    sync_record.sync_column = req.sync_column
+                else:
+                    sql = f"SELECT * FROM {table_name}"
+            else:
+                sql = f"SELECT * FROM {table_name}"
+
+            df = pd.read_sql(sql, engine)
+
+            # 记录增量位置
+            if not df.empty and req.sync_column in df.columns:
+                sync_record.sync_column = req.sync_column
+                sync_record.last_sync_value = str(df[req.sync_column].max())
+
             engine.dispose()
 
             date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
             prefix = get_bronze_path(ds_id, table_name, date_str)
-            key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+            mode = req.sync_mode or "full"
+            key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
             result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
 
             sync_record.status = "success"

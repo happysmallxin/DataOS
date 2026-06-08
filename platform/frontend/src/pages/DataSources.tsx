@@ -45,6 +45,8 @@ export default function DataSources() {
   const [tablesLoading, setTablesLoading] = useState(false)
   const [syncTables, setSyncTables] = useState<Set<string>>(new Set())
   const [syncResults, setSyncResults] = useState<any>(null)
+  const [syncMode, setSyncMode] = useState<'full' | 'incremental'>('full')
+  const [syncColumn, setSyncColumn] = useState('updated_at')
 
   // 预览
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -128,6 +130,8 @@ export default function DataSources() {
     try {
       const res = await apiClient.post(`/datasources/${syncDsId}/sync-all`, {
         table_names: Array.from(syncTables),
+        sync_mode: syncMode === 'incremental' ? 'incremental' : 'full',
+        sync_column: syncColumn,
       })
       const ok = res.data.tables.filter((t: any) => t.status === 'success').length
       const fail = res.data.tables.filter((t: any) => t.status === 'failed').length
@@ -274,9 +278,15 @@ export default function DataSources() {
         width={640}>
         {tablesLoading ? <Text type="secondary">加载表列表中...</Text> : (
           <div>
-            <div style={{ marginBottom: 8 }}>
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Button size="small" onClick={() => setSyncTables(new Set(tables.map(t => t.name)))}>全选</Button>
-              <Button size="small" style={{ marginLeft: 8 }} onClick={() => setSyncTables(new Set())}>取消全选</Button>
+              <Button size="small" onClick={() => setSyncTables(new Set())}>取消全选</Button>
+              <Select size="small" value={syncMode} onChange={setSyncMode} style={{ width: 100 }}
+                options={[{ value: 'full', label: '全量同步' }, { value: 'incremental', label: '增量同步' }]} />
+              {syncMode === 'incremental' && (
+                <Input size="small" placeholder="跟踪列" value={syncColumn}
+                  onChange={(e) => setSyncColumn(e.target.value)} style={{ width: 120 }} />
+              )}
             </div>
             {tables.map(t => (
               <div key={t.name} style={{

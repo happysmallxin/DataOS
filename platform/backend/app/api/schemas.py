@@ -367,6 +367,7 @@ class SyncRequest(BaseModel):
     """同步请求."""
     table_name: str = Field(..., description="要同步的表名")
     sync_mode: str = Field(default="full", description="full / incremental")
+    sync_column: str = Field(default="updated_at", description="增量跟踪列: updated_at / id")
 
 
 class SyncHistoryResponse(BaseModel):
@@ -381,6 +382,8 @@ class SyncHistoryResponse(BaseModel):
     storage_path: Optional[str] = None
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None
+    sync_column: Optional[str] = None
+    last_sync_value: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
