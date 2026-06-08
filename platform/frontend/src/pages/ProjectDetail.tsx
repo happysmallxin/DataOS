@@ -1,7 +1,7 @@
 /**
  * 项目详情页 — 对标 DataWorks 工作空间详情.
  *
- * Tab: 概览 / 数据源 / 成员管理 / 审计日志
+ * Tab: 概览 / 数据源 / 清洗Pipeline / 成员管理 / 审计日志
  */
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -12,7 +12,7 @@ import {
 import {
   ArrowLeftOutlined, PlusOutlined, SwapOutlined, DatabaseOutlined,
   SafetyCertificateOutlined, ApiOutlined, BugOutlined, DeleteOutlined,
-  LinkOutlined, ReloadOutlined, CopyOutlined,
+  LinkOutlined, ReloadOutlined, CopyOutlined, PlayCircleOutlined,
 } from '@ant-design/icons'
 import apiClient from '../utils/api'
 import { usePermission } from '../hooks/usePermission'
@@ -94,6 +94,11 @@ export default function ProjectDetail() {
   const [crawlerCount, setCrawlerCount] = useState(0)
   const [qualityRuleCount, setQualityRuleCount] = useState(0)
   const [pipelineCount, setPipelineCount] = useState(0)
+  const [pipelines, setPipelines] = useState<any[]>([])
+  const [plCreateOpen, setPlCreateOpen] = useState(false)
+  const [plCreateForm] = Form.useForm()
+  const [plRunning, setPlRunning] = useState<number | null>(null)
+  const [plResult, setPlResult] = useState<any>(null)
 
   // audit
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
@@ -156,10 +161,12 @@ export default function ProjectDetail() {
     } catch { /* ignore */ }
   }, [projectId])
 
-  const fetchPipelineCount = useCallback(async () => {
+  const fetchPipelines = useCallback(async () => {
     try {
       const resp = await apiClient.get('/cleaning/pipelines', { params: { project_id: projectId } })
-      setPipelineCount(resp.data.total || resp.data.items?.length || 0)
+      const items = resp.data.items || resp.data || []
+      setPipelines(items)
+      setPipelineCount(resp.data.total || items.length || 0)
     } catch { /* ignore */ }
   }, [projectId])
 
@@ -167,11 +174,11 @@ export default function ProjectDetail() {
     setLoading(true)
     await Promise.all([
       fetchProject(), fetchMembers(), fetchDatasources(), fetchAuditLogs(),
-      fetchSourceTypes(), fetchCrawlerCount(), fetchQualityRuleCount(), fetchPipelineCount(),
+      fetchSourceTypes(), fetchCrawlerCount(), fetchQualityRuleCount(), fetchPipelines(),
     ])
     setLoading(false)
   }, [fetchProject, fetchMembers, fetchDatasources, fetchAuditLogs, fetchSourceTypes,
-      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelineCount])
+      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelines])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -260,6 +267,53 @@ export default function ProjectDetail() {
 
   const handleCopyDSName = (name: string) => {
     navigator.clipboard.writeText(name).then(() => message.success('已复制'))
+  }
+
+  // ---- Pipeline handlers ----
+
+  const handleCreatePipeline = async (values: any) => {
+    try {
+      await apiClient.post('/cleaning/pipelines', {
+        project_id: projectId,
+        datasource_id: values.datasource_id || null,
+        source_table: values.source_table || null,
+        name: values.name,
+        target_table: values.target_table || null,
+        stages: [
+          { type: 'standardize', config: { column: values.column || 'id', operation: values.operation || 'trim' } },
+        ],
+        description: values.description,
+      })
+      message.success('Pipeline 创建成功')
+      setPlCreateOpen(false)
+      plCreateForm.resetFields()
+      fetchPipelines()
+      fetchAuditLogs()
+    } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
+  }
+
+  const handleRunPipeline = async (plId: number) => {
+    setPlRunning(plId)
+    setPlResult(null)
+    try {
+      const resp = await apiClient.post('/cleaning/pipelines/run', { pipeline_id: plId })
+      const d = resp.data
+      const s = d.output_storage || {}
+      setPlResult({ ...d, id: plId })
+      if (s.rows) message.success(`清洗完成: ${s.rows} 行 → MinIO Silver + PG Gold`)
+      else message.info('清洗完成')
+      fetchPipelines()
+      fetchAuditLogs()
+    } catch (err: any) { message.error(err.response?.data?.detail || '执行失败') }
+    finally { setPlRunning(null) }
+  }
+
+  const handleDeletePipeline = async (plId: number) => {
+    try {
+      await apiClient.delete(`/cleaning/pipelines/${plId}`)
+      message.success('Pipeline 已删除')
+      fetchPipelines()
+    } catch { message.error('删除失败') }
   }
 
   // ---- loading / empty ----
@@ -515,7 +569,74 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 3: 成员管理 ----
+    // ---- Tab 3: 清洗 Pipeline ----
+    {
+      key: 'pipelines',
+      label: `Pipeline (${pipelineCount})`,
+      children: (
+        <Card
+          title="清洗 Pipeline"
+          extra={
+            <Space>
+              <Button icon={<ReloadOutlined />} size="small" onClick={fetchPipelines}>刷新</Button>
+              {can('project:read') && (
+                <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => { plCreateForm.resetFields(); setPlCreateOpen(true) }}>
+                  新建 Pipeline
+                </Button>
+              )}
+            </Space>
+          }
+        >
+          {pipelines.length === 0 ? (
+            <Empty description="暂无 Pipeline" children={
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setPlCreateOpen(true)}>创建第一个 Pipeline</Button>
+            } />
+          ) : (
+            <div>
+              {pipelines.map((pl: any) => (
+                <Card key={pl.id} size="small" style={{ marginBottom: 12 }}
+                  title={<Space><Text strong>{pl.name}</Text><Tag color={pl.status === 'active' ? 'green' : 'default'}>{pl.status}</Tag></Space>}
+                  extra={
+                    <Space>
+                      <Button size="small" type="primary" icon={<PlayCircleOutlined />}
+                        loading={plRunning === pl.id} onClick={() => handleRunPipeline(pl.id)}>
+                        执行
+                      </Button>
+                      <Popconfirm title="确认删除?" onConfirm={() => handleDeletePipeline(pl.id)}>
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </Space>
+                  }>
+                  <Row gutter={16}>
+                    <Col span={6}><Text type="secondary">数据源</Text><br /><Text>{pl.datasource_id ? `#${pl.datasource_id}` : '未关联'}</Text></Col>
+                    <Col span={6}><Text type="secondary">源表</Text><br /><Text>{pl.source_table || '—'}</Text></Col>
+                    <Col span={6}><Text type="secondary">目标表</Text><br /><Text code>{pl.target_table || '—'}</Text></Col>
+                    <Col span={6}><Text type="secondary">版本</Text><br /><Text>v{pl.version}</Text></Col>
+                  </Row>
+                  <Row gutter={16} style={{ marginTop: 8 }}>
+                    <Col span={6}><Text type="secondary">上次执行</Text><br /><Text>{pl.last_run_at ? new Date(pl.last_run_at).toLocaleString() : '从未'}</Text></Col>
+                    <Col span={6}><Text type="secondary">输出行数</Text><br /><Text>{pl.last_output_rows?.toLocaleString() || '—'}</Text></Col>
+                    <Col span={12}><Text type="secondary">Stages</Text><br /><Text style={{ fontSize: 12 }}>{(pl.stages || []).map((s: any) => s.type).join(' → ') || '—'}</Text></Col>
+                  </Row>
+                  {/* 执行结果 */}
+                  {plResult && plResult.id === pl.id && (
+                    <div style={{ marginTop: 8, padding: 8, background: '#f6ffed', borderRadius: 6 }}>
+                      <Text type="success" style={{ fontSize: 12 }}>
+                        执行完成: {plResult.output_rows} 行 |
+                        Silver: {plResult.output_storage?.minio_silver?.split('/').pop() || '—'} |
+                        PG: {plResult.output_storage?.postgresql?.table || '—'}
+                      </Text>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </Card>
+      ),
+    },
+
+    // ---- Tab 4: 成员管理 ----
     {
       key: 'members',
       label: `成员 (${members.length})`,
@@ -541,7 +662,7 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 4: 审计日志 ----
+    // ---- Tab 5: 审计日志 ----
     {
       key: 'audit',
       label: '审计日志',
@@ -580,6 +701,40 @@ export default function ProjectDetail() {
       </div>
 
       <Tabs defaultActiveKey="overview" items={tabs} />
+
+      {/* ======== 创建 Pipeline 弹窗 ======== */}
+      <Modal title="新建 Pipeline" open={plCreateOpen}
+        onCancel={() => { setPlCreateOpen(false); plCreateForm.resetFields() }}
+        onOk={() => plCreateForm.submit()} width={520}>
+        <Form form={plCreateForm} layout="vertical" onFinish={handleCreatePipeline}>
+          <Form.Item name="name" label="Pipeline 名称" rules={[{ required: true }]}>
+            <Input placeholder="如: 用户数据清洗" />
+          </Form.Item>
+          <Form.Item name="datasource_id" label="关联数据源 ID">
+            <Input type="number" placeholder="如: 3" />
+          </Form.Item>
+          <Form.Item name="source_table" label="源表名">
+            <Input placeholder="如: users (数据源中要清洗的表)" />
+          </Form.Item>
+          <Form.Item name="column" label="清洗列" initialValue="username">
+            <Input placeholder="要标准化的列名" />
+          </Form.Item>
+          <Form.Item name="operation" label="操作" initialValue="trim">
+            <Select options={[
+              { value: 'trim', label: '去空格 (trim)' },
+              { value: 'lowercase', label: '转小写 (lowercase)' },
+              { value: 'uppercase', label: '转大写 (uppercase)' },
+              { value: 'parse_date', label: '日期解析 (parse_date)' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="target_table" label="输出表名 (PG Gold)">
+            <Input placeholder="如: clean_users" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* ======== 添加成员弹窗 ======== */}
       <Modal title="添加成员" open={addMemberOpen} onCancel={() => setAddMemberOpen(false)} onOk={() => addMemberForm.submit()}>
