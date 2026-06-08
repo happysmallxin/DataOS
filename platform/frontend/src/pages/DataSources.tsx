@@ -276,20 +276,26 @@ export default function DataSources() {
           <Form.Item name="source_type" label="类型" rules={[{ required: true }]}>
             <Select options={sourceTypeOptions} />
           </Form.Item>
-          <Form.Item name="host" label="主机" initialValue="localhost">
-            <Input />
-          </Form.Item>
-          <Form.Item name="port" label="端口" initialValue={3306}>
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="database" label="数据库名">
-            <Input placeholder="dataos_platform" />
-          </Form.Item>
-          <Form.Item name="username" label="用户名">
-            <Input placeholder="root" />
-          </Form.Item>
-          <Form.Item name="password" label="密码">
-            <Input.Password placeholder="数据库密码" />
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.source_type !== cur.source_type}>
+            {({ getFieldValue }) => getFieldValue('source_type') !== 'sqlfile' && (
+              <>
+                <Form.Item name="host" label="主机" initialValue="localhost">
+                  <Input />
+                </Form.Item>
+                <Form.Item name="port" label="端口" initialValue={3306}>
+                  <Input type="number" />
+                </Form.Item>
+                <Form.Item name="database" label="数据库名">
+                  <Input placeholder="dataos_platform" />
+                </Form.Item>
+                <Form.Item name="username" label="用户名">
+                  <Input placeholder="root" />
+                </Form.Item>
+                <Form.Item name="password" label="密码">
+                  <Input.Password placeholder="数据库密码" />
+                </Form.Item>
+              </>
+            )}
           </Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, cur) => prev.source_type !== cur.source_type}>
             {({ getFieldValue }) => getFieldValue('source_type') === 'sqlfile' && (
