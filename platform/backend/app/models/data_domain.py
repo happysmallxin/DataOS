@@ -43,6 +43,7 @@ class BusinessProcess(Base):
     source_tables: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     target_tables: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     table_type: Mapped[str] = mapped_column(String(32), default="DWD")  # DIM/FACT/DWD/DWS/ADS
+    view_sql: Mapped[Optional[str]] = mapped_column(String(4096), nullable=True)  # 自定义 SQL 视图
     schedule_cron: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

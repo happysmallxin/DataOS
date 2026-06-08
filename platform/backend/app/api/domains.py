@@ -49,6 +49,8 @@ class ProcessCreate(BaseModel):
     source_tables: Optional[list[str]] = None
     target_tables: Optional[list[str]] = None
     table_type: str = "DWD"
+    view_sql: Optional[str] = None          # 自定义 SQL 视图定义
+    exclude_columns: Optional[list[str]] = None  # 额外排除的列
     schedule_cron: Optional[str] = None
 
 
@@ -213,48 +215,65 @@ async def create_process(
 
     result = {"id": bp.id, "name": bp.name, "display_name": bp.display_name, "table_type": bp.table_type, "ddl": None, "pipeline_id": None}
 
-    # 自动创建目标表 + Pipeline
+    # 自动创建目标表/视图 + Pipeline
     if auto_create_table and req.source_tables and req.target_tables:
         from sqlalchemy import create_engine, inspect as sa_inspect, text
         try:
             engine = create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
             inspector = sa_inspect(engine)
 
-            # 1. 读取源表列
             source_table = req.source_tables[0]
             src_cols = inspector.get_columns(source_table)
             target_table = req.target_tables[0]
 
-            # 2. 生成 DDL (排除敏感字段 hashed_password, password, secret, token, api_key)
+            # 排除敏感字段 + 用户指定排除
             excluded = {"hashed_password", "password", "secret", "token", "api_key", "is_superuser"}
-            col_defs = []
-            for c in src_cols:
-                if c["name"] in excluded:
-                    continue
-                col_type = str(c["type"])
-                nullable = "" if c.get("nullable") is False else "NULL"
-                col_defs.append(f'  "{c["name"]}" {col_type} {nullable}')
+            if req.exclude_columns:
+                excluded.update(req.exclude_columns)
 
-            if not any("PRIMARY KEY" in d.upper() for d in col_defs) and any("id" in d.lower() for d in col_defs):
-                for i, d in enumerate(col_defs):
-                    if d.strip().startswith('"id"'):
-                        col_defs[i] = d.replace(" NULL", " NOT NULL") + " PRIMARY KEY"
-                        break
+            # ---- 视图模式: view_sql 有值 ----
+            if req.view_sql:
+                view_name = target_table
+                # 使用用户自定义 SQL 创建视图
+                create_view_sql = f"CREATE OR REPLACE VIEW {view_name} AS {req.view_sql}"
+                with engine.connect() as conn:
+                    conn.execute(text(create_view_sql))
+                    conn.commit()
+                result["view_created"] = view_name
+                result["view_sql"] = create_view_sql
+                bp.view_sql = req.view_sql
+                result["ddl"] = create_view_sql
 
-            ddl = f'CREATE TABLE IF NOT EXISTS {target_table} (\n' + ",\n".join(col_defs) + "\n);"
-            result["ddl"] = ddl
+            # ---- 表模式: 自动生成 DDL ----
+            else:
+                col_defs = []
+                for c in src_cols:
+                    if c["name"] in excluded:
+                        continue
+                    col_type = str(c["type"])
+                    nullable = "" if c.get("nullable") is False else "NULL"
+                    col_defs.append(f'  "{c["name"]}" {col_type} {nullable}')
 
-            # 3. 执行 DDL
-            with engine.connect() as conn:
-                conn.execute(text(ddl))
-                conn.commit()
+                if not any("PRIMARY KEY" in d.upper() for d in col_defs) and any("id" in d.lower() for d in col_defs):
+                    for i, d in enumerate(col_defs):
+                        if d.strip().startswith('"id"'):
+                            col_defs[i] = d.replace(" NULL", " NOT NULL") + " PRIMARY KEY"
+                            break
+
+                ddl = f'CREATE TABLE IF NOT EXISTS {target_table} (\n' + ",\n".join(col_defs) + "\n);"
+                result["ddl"] = ddl
+                with engine.connect() as conn:
+                    conn.execute(text(ddl))
+                    conn.commit()
+                result["table_created"] = target_table
+
             engine.dispose()
-            result["table_created"] = target_table
 
-            # 4. 自动生成 Pipeline
+            # 自动生成 Pipeline
             from app.models.pipeline import CleaningPipeline
             stages = [{"type": "standardize", "config": {"column": c["name"], "operation": "trim"}}
-                      for c in src_cols if c["type"].__class__.__name__ == "String" and c["name"] not in excluded][:3]
+                      for c in src_cols if "char" in str(c["type"]).lower() or "text" in str(c["type"]).lower()
+                      if c["name"] not in excluded][:3]
 
             pl = CleaningPipeline(
                 project_id=project_id, name=f"{bp.name}_pipeline",
@@ -287,6 +306,48 @@ async def list_processes(
     stmt = stmt.order_by(BusinessProcess.id)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.post("/api/v1/projects/{project_id}/processes/{process_id}/create-view")
+async def create_process_view(
+    project_id: int, process_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    view_sql: Optional[str] = None,
+):
+    """为业务过程创建/刷新 PG 视图."""
+    bp = await db.get(BusinessProcess, process_id)
+    if not bp: raise HTTPException(status_code=404, detail="业务过程不存在")
+
+    sql = view_sql or bp.view_sql
+    if not sql and bp.source_tables:
+        # 自动生成排除敏感字段的视图
+        from sqlalchemy import create_engine, inspect
+        excluded = {"hashed_password", "password", "secret", "token", "api_key", "is_superuser"}
+        engine = create_engine(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+        inspector = inspect(engine)
+        src = bp.source_tables[0]
+        cols = [c["name"] for c in inspector.get_columns(src) if c["name"] not in excluded]
+        engine.dispose()
+        target = bp.target_tables[0] if bp.target_tables else f"v_{bp.name}"
+        sql = f"SELECT {', '.join(cols)} FROM {src}"
+
+    if not sql:
+        raise HTTPException(status_code=400, detail="无可用 SQL, 请提供 view_sql 或 source_tables")
+
+    view_name = bp.target_tables[0] if bp.target_tables else f"v_{bp.name}"
+    create_sql = f"CREATE OR REPLACE VIEW {view_name} AS {sql}"
+
+    from sqlalchemy import create_engine as sync_ce, text
+    engine = sync_ce(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+    with engine.connect() as conn:
+        conn.execute(text(create_sql))
+        conn.commit()
+    engine.dispose()
+
+    bp.view_sql = sql
+    await db.commit()
+    return {"view": view_name, "sql": create_sql}
 
 
 @router.put("/api/v1/projects/{project_id}/processes/{process_id}")
