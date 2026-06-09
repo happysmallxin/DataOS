@@ -175,6 +175,92 @@ ROLE_PERMISSION_MAP = {
 }
 
 
+# 内置清洗规则模板 — 行业标准规则
+BUILTIN_TEMPLATES = [
+    {
+        "name": "mes_standard_clean",
+        "display_name": "MES标准清洗",
+        "description": "适用于MES工单/派工/报工/质检数据的标准化清洗，包含结构检查、主键唯一性、状态标准化、时间逻辑、数量合理性校验",
+        "stages": [
+            {"type": "standardize", "config": {"column": "work_order_code", "operation": "trim"}},
+            {"type": "standardize", "config": {"column": "order_status", "operation": "lowercase"}},
+            {"type": "standardize", "config": {"column": "material_code", "operation": "trim"}},
+            {"type": "dedup", "config": {"subset": ["work_order_code"], "keep": "last"}},
+            {"type": "outliers", "config": {"column": "plan_qty", "method": "iqr"}},
+            {"type": "outliers", "config": {"column": "complete_qty", "method": "iqr"}},
+            {"type": "quality_gate", "config": {"rules": [{"column": "work_order_code", "type": "not_null"}, {"column": "work_order_code", "type": "unique"}]}},
+        ],
+    },
+    {
+        "name": "general_standardize",
+        "display_name": "通用数据标准化",
+        "description": "通用的字段标准化：去空格、转小写、日期解析、空值填充、类型转换",
+        "stages": [
+            {"type": "standardize", "config": {"column": "*", "operation": "trim"}},
+            {"type": "standardize", "config": {"column": "*", "operation": "lowercase"}},
+            {"type": "standardize", "config": {"column": "created_at", "operation": "parse_date"}},
+            {"type": "standardize", "config": {"column": "updated_at", "operation": "parse_date"}},
+            {"type": "imputation", "config": {"column": "*", "strategy": "mode"}},
+        ],
+    },
+    {
+        "name": "data_completeness",
+        "display_name": "数据完整性检查",
+        "description": "检查关键字段非空、主键唯一、外键关联完整、时间逻辑合理",
+        "stages": [
+            {"type": "quality_gate", "config": {"rules": [{"column": "id", "type": "not_null"}, {"column": "id", "type": "unique"}]}},
+            {"type": "dedup", "config": {"subset": ["id"], "keep": "last"}},
+            {"type": "quality_gate", "config": {"rules": [{"column": "created_at", "type": "not_null"}]}},
+        ],
+    },
+    {
+        "name": "mes_status_normalize",
+        "display_name": "MES状态标准化",
+        "description": "将MES系统中的数值状态码(0/1/2/3)和英文状态(NEW/PROG/DONE)统一转换为中文标准状态",
+        "stages": [
+            {"type": "standardize", "config": {"column": "order_status", "operation": "map_values", "mapping": {"0": "未发布", "1": "部分发布", "2": "已发布", "3": "完工", "NEW": "未发布", "PROG": "部分发布", "DONE": "完工"}}},
+            {"type": "standardize", "config": {"column": "quality_result", "operation": "map_values", "mapping": {"0": "未检测", "1": "合格", "2": "不合格", "3": "让步接收", "PASS": "合格", "FAIL": "不合格"}}},
+            {"type": "standardize", "config": {"column": "is_active", "operation": "map_values", "mapping": {"0": "停用", "1": "正常"}}},
+        ],
+    },
+    {
+        "name": "time_logic_check",
+        "display_name": "时间逻辑校验",
+        "description": "检查计划时间、开始时间、结束时间、采集时间之间的先后关系合理性",
+        "stages": [
+            {"type": "business_rules", "config": {"conditions": [{"expression": "plan_start_time < plan_end_time", "severity": "error", "message": "计划开始时间晚于计划结束时间"}]}},
+            {"type": "business_rules", "config": {"conditions": [{"expression": "actual_start_time < actual_end_time", "severity": "error", "message": "实际开始时间晚于实际结束时间"}]}},
+        ],
+    },
+    {
+        "name": "quantity_validity",
+        "display_name": "数量合理性校验",
+        "description": "检查数量字段非负、良品+不良品+报废=报工总数、完成数量不超计划数量",
+        "stages": [
+            {"type": "business_rules", "config": {"conditions": [{"expression": "plan_qty >= 0", "severity": "error", "message": "计划数量不能为负"}]}},
+            {"type": "business_rules", "config": {"conditions": [{"expression": "complete_qty >= 0", "severity": "error", "message": "完成数量不能为负"}]}},
+            {"type": "business_rules", "config": {"conditions": [{"expression": "qualified_qty + defect_qty + scrap_qty = complete_qty", "severity": "warning", "message": "良品+不良品+报废≠报工总数"}]}},
+        ],
+    },
+]
+
+async def seed_cleaning_templates(session):
+    """初始化内置清洗规则模板 (幂等)."""
+    from app.models.cleaning_template import CleaningTemplate
+    from sqlalchemy import select as sa_select
+
+    existing = (await session.execute(sa_select(CleaningTemplate))).scalars().all()
+    existing_names = {t.name for t in existing}
+
+    for tpl in BUILTIN_TEMPLATES:
+        if tpl["name"] not in existing_names:
+            session.add(CleaningTemplate(**tpl, created_by=1))
+            print(f"  📋 清洗模板: {tpl['display_name']} ({len(tpl['stages'])} 规则)")
+
+    await session.flush()
+    if not existing:
+        print(f"  ✅ {len(BUILTIN_TEMPLATES)} 个内置清洗模板已创建")
+
 async def seed_rbac(session):
     """初始化 RBAC 种子数据 (幂等)."""
     from sqlalchemy import select as sa_select
@@ -285,6 +371,9 @@ async def lifespan(app: FastAPI):
             ))
             await session.commit()
             print("👤 默认管理员已创建 (admin / admin123)")
+
+        # 种子清洗规则模板
+        await seed_cleaning_templates(session)
 
         # 种子 RBAC 数据
         await seed_rbac(session)
