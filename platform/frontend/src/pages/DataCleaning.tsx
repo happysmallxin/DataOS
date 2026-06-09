@@ -75,7 +75,7 @@ export default function DataCleaning() {
         target_prefix: '',
         template_id: selectedTemplate || null,
       })
-      message.success(`已创建 ${resp.data.created} 条 Pipeline (${resp.data.template || '默认规则'})`)
+      message.success(`清洗任务已创建: ${resp.data.name} (${resp.data.table_count} 张表, ${resp.data.template || '默认规则'})`)
       setSelectedTables(new Set()); fetchAll()
     } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
     finally { setBatchCreating(false) }
@@ -263,8 +263,15 @@ export default function DataCleaning() {
         <Table dataSource={pipelines} rowKey="id" loading={loading} size="small" pagination={{ pageSize: 15 }}
           columns={[
             { title: '名称', dataIndex: 'name', width: 160, ellipsis: true },
-            { title: '源表', dataIndex: 'source_table', width: 120 },
-            { title: '目标表', dataIndex: 'target_table', width: 140, render: (v: string|null) => <Text code>{v||'-'}</Text> },
+            { title: '源表', dataIndex: 'source_table', width: 200, ellipsis: true,
+              render: (v: string|null) => {
+                const tables = (v||'').split(',')
+                return tables.length > 2
+                  ? <Text>{tables[0]}, {tables[1]} <Text type="secondary">+{tables.length-2}</Text></Text>
+                  : <Text>{v||'-'}</Text>
+              }},
+            { title: '目标表', dataIndex: 'source_table', width: 120,
+              render: (v: string|null) => <Text type="secondary">同源表</Text> },
             { title: '规则', dataIndex: 'stages', ellipsis: true, render: (v: any[]) => (v||[]).map((s:any)=>s.rule_type||s.type).join('→')||'-' },
             { title: '上次输出', dataIndex: 'last_output_rows', width: 80, render: (v: number) => v ? `${v}行` : '-' },
             { title: '操作', width: 140, render: (_: any, r: PipelineItem) => (
