@@ -25,6 +25,7 @@ export default function DataCleaning() {
   const [tplEditId, setTplEditId] = useState<number | null>(null)
   const [tplForm] = Form.useForm()
   const [batchCreating, setBatchCreating] = useState(false)
+  const [expandedTpl, setExpandedTpl] = useState<Set<number>>(new Set())
 
   const fetchAll = async () => {
     setLoading(true)
@@ -113,28 +114,46 @@ export default function DataCleaning() {
                   </Popconfirm>
                 </Space>
               }>
-              <Table dataSource={(t.stages || []).map((s: any, i: number) => ({ ...s, _key: i }))} rowKey="_key"
-                size="small" pagination={false} showHeader={t.stages?.length > 0}
-                columns={[
-                  { title: '规则名称', dataIndex: 'rule_name', width: 160, render: (v: string) => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> },
-                  { title: '清洗类型', dataIndex: 'rule_type', width: 120, render: (v: string) => {
-                    const m: Record<string, {c:string,l:string}> = {
-                      structure_check:{c:'blue',l:'结构检查'}, primary_key:{c:'orange',l:'主键检查'},
-                      code_mapping:{c:'purple',l:'编码映射'}, status_standardize:{c:'green',l:'状态标准化'},
-                      time_logic:{c:'cyan',l:'时间逻辑'}, quantity_check:{c:'red',l:'数量合理性'},
-                      field_standardize:{c:'geekblue',l:'字段标准化'},
-                      standardize:{c:'default',l:'标准化'}, dedup:{c:'default',l:'去重'},
-                    }
-                    const info = m[v] || {c:'default',l:v}
-                    return <Tag color={info.c}>{info.l}</Tag>
-                  }},
-                  { title: '目标', dataIndex: 'target', width: 140, render: (v: string) => <Text code style={{fontSize:11}}>{v||'*'}</Text> },
-                  { title: '严重级别', dataIndex: 'severity', width: 80, render: (v: string) => {
-                    const colors: Record<string,string> = {error:'red',warning:'orange',info:'blue'}
-                    return <Tag color={colors[v]||'default'}>{v}</Tag>
-                  }},
-                  { title: '执行方式', dataIndex: 'action', width: 120, ellipsis: true },
-                ]} />
+              {/* 折叠: 默认只显示第一条规则 */}
+              {!expandedTpl.has(t.id) ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0' }}>
+                  <Space size="middle">
+                    <Tag color="blue">{t.stages?.[0]?.rule_type || '—'}</Tag>
+                    <Text>{t.stages?.[0]?.rule_name || '—'}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>目标: {t.stages?.[0]?.target || '*'}</Text>
+                    <Tag color={t.stages?.[0]?.severity === 'error' ? 'red' : t.stages?.[0]?.severity === 'warning' ? 'orange' : 'default'}>
+                      {t.stages?.[0]?.severity || '—'}
+                    </Tag>
+                  </Space>
+                  <Button type="link" size="small" onClick={() => setExpandedTpl(new Set([...expandedTpl, t.id]))}>
+                    展开全部 {t.stages?.length || 0} 条规则 ▾
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <Table dataSource={(t.stages || []).map((s: any, i: number) => ({ ...s, _key: i }))} rowKey="_key"
+                    size="small" pagination={false} showHeader={t.stages?.length > 1}
+                    columns={[
+                      { title: '规则名称', dataIndex: 'rule_name', width: 160, render: (v: string) => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> },
+                      { title: '清洗类型', dataIndex: 'rule_type', width: 120, render: (v: string) => {
+                        const m: Record<string, {c:string,l:string}> = {
+                          structure_check:{c:'blue',l:'结构检查'}, primary_key:{c:'orange',l:'主键检查'},
+                          code_mapping:{c:'purple',l:'编码映射'}, status_standardize:{c:'green',l:'状态标准化'},
+                          time_logic:{c:'cyan',l:'时间逻辑'}, quantity_check:{c:'red',l:'数量合理性'},
+                          field_standardize:{c:'geekblue',l:'字段标准化'},
+                          standardize:{c:'default',l:'标准化'}, dedup:{c:'default',l:'去重'},
+                        }
+                        return <Tag color={(m[v]||{c:'default'}).c}>{(m[v]||{l:v}).l}</Tag>
+                      }},
+                      { title: '目标', dataIndex: 'target', width: 140, render: (v: string) => <Text code style={{fontSize:11}}>{v||'*'}</Text> },
+                      { title: '严重级别', dataIndex: 'severity', width: 80, render: (v: string) => <Tag color={({error:'red',warning:'orange',info:'blue'} as any)[v]||'default'}>{v}</Tag> },
+                      { title: '执行方式', dataIndex: 'action', width: 120, ellipsis: true },
+                    ]} />
+                  <Button type="link" size="small" onClick={() => { const next = new Set(expandedTpl); next.delete(t.id); setExpandedTpl(next) }} style={{ marginTop: 4 }}>
+                    收起 ▴
+                  </Button>
+                </div>
+              )}
             </Card>
           ))
         )}
