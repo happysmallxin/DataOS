@@ -72,7 +72,7 @@ export default function DataCleaning() {
       const params: any = { datasource_id: dsId, tables: Array.from(selectedTables), target_prefix: 'clean_' }
       if (selectedTemplate) params.template_id = selectedTemplate
       const resp = await apiClient.post('/cleaning/batch-create-pipelines', null, { params })
-      message.success(`已创建 ${resp.data.created} 条 Pipeline`)
+      message.success(`清洗任务已创建: ${resp.data.pipeline_name} (${resp.data.tables?.length || 0} 张表)`)
       setSelectedTables(new Set()); fetchAll()
     } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
     finally { setBatchCreating(false) }
@@ -233,7 +233,7 @@ export default function DataCleaning() {
           <Button type="primary" icon={<ThunderboltOutlined />}
             loading={batchCreating} disabled={selectedTables.size === 0}
             onClick={handleBatchCreate}>
-            批量创建 Pipeline
+            创建清洗任务
           </Button>
         </Space>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: 200, overflow: 'auto' }}>
