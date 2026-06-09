@@ -281,7 +281,7 @@ export default function DataCleaning() {
               }},
             { title: '目标表', dataIndex: 'source_table', width: 120,
               render: (v: string|null) => <Text type="secondary">同源表</Text> },
-            { title: '规则', dataIndex: 'stages', ellipsis: true, render: (v: any[]) => (v||[]).map((s:any)=>s.rule_type||s.type).join('→')||'-' },
+            { title: '规则', dataIndex: 'stages', ellipsis: true, render: (v: any[]) => [...new Set((v||[]).map((s:any)=>s.rule_type||s.type))].join('→')||'-' },
             { title: '上次输出', dataIndex: 'last_output_rows', width: 80, render: (v: number) => v ? `${v}行` : '-' },
             { title: '操作', width: 140, render: (_: any, r: PipelineItem) => (
               <Space size="small">
