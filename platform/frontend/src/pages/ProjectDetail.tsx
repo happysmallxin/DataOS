@@ -109,6 +109,15 @@ export default function ProjectDetail() {
   const [processForm] = Form.useForm()
   const [selectedDomain, setSelectedDomain] = useState<any>(null)
 
+  // 数据标准
+  const [standards, setStandards] = useState<any[]>([])
+  const [mappings, setMappings] = useState<any[]>([])
+  const [codeDicts, setCodeDicts] = useState<any[]>([])
+  const [stdFormOpen, setStdFormOpen] = useState(false)
+  const [stdForm] = Form.useForm()
+  const [dictFormOpen, setDictFormOpen] = useState(false)
+  const [dictForm] = Form.useForm()
+
   // audit
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
 
@@ -193,16 +202,27 @@ export default function ProjectDetail() {
     } catch { /* ignore */ }
   }, [projectId])
 
+  const fetchStandards = useCallback(async () => {
+    try {
+      const [s, m, d] = await Promise.all([
+        apiClient.get(`/projects/${projectId}/standards`),
+        apiClient.get(`/projects/${projectId}/mappings`),
+        apiClient.get(`/projects/${projectId}/code-dicts`),
+      ])
+      setStandards(s.data || []); setMappings(m.data || []); setCodeDicts(d.data || [])
+    } catch { /* ignore */ }
+  }, [projectId])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     await Promise.all([
       fetchProject(), fetchMembers(), fetchDatasources(), fetchAuditLogs(),
       fetchSourceTypes(), fetchCrawlerCount(), fetchQualityRuleCount(), fetchPipelines(),
-      fetchDomains(), fetchProcesses(),
+      fetchDomains(), fetchProcesses(), fetchStandards(),
     ])
     setLoading(false)
   }, [fetchProject, fetchMembers, fetchDatasources, fetchAuditLogs, fetchSourceTypes,
-      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelines, fetchDomains, fetchProcesses])
+      fetchCrawlerCount, fetchQualityRuleCount, fetchPipelines, fetchDomains, fetchProcesses, fetchStandards])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -381,6 +401,29 @@ export default function ProjectDetail() {
       message.success('业务过程已删除')
       fetchProcesses()
     } catch { message.error('删除失败') }
+  }
+
+  // ---- 数据标准 handlers ----
+  const handleCreateStandard = async (values: any) => {
+    try {
+      await apiClient.post(`/projects/${projectId}/standards`, values)
+      message.success('标准字段已创建'); setStdFormOpen(false); stdForm.resetFields(); fetchStandards()
+    } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
+  }
+
+  const handleAutoMap = async (dsId: number) => {
+    try {
+      const resp = await apiClient.post(`/projects/${projectId}/mappings/auto?datasource_id=${dsId}`)
+      message.success(`自动映射完成: ${resp.data.mappings_created} 条`)
+      fetchStandards()
+    } catch (err: any) { message.error(err.response?.data?.detail || '映射失败') }
+  }
+
+  const handleCreateCodeDict = async (values: any) => {
+    try {
+      await apiClient.post(`/projects/${projectId}/code-dicts`, values)
+      message.success('编码已添加'); setDictFormOpen(false); dictForm.resetFields(); fetchStandards()
+    } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
   }
 
   // ---- loading / empty ----
@@ -755,7 +798,61 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 5: 成员管理 ----
+    // ---- Tab 5: 数据标准 ----
+    {
+      key: 'standards',
+      label: '数据标准',
+      children: (
+        <div>
+          {/* 标准字段 */}
+          <Card title="标准字段" size="small" style={{ marginBottom: 16 }}
+            extra={<Button size="small" icon={<PlusOutlined />} onClick={() => { stdForm.resetFields(); setStdFormOpen(true) }}>新增标准</Button>}>
+            {standards.length === 0 ? <Text type="secondary">暂无标准字段</Text> : (
+              <Table dataSource={standards} rowKey="id" size="small" pagination={false}
+                columns={[
+                  { title: '编码', dataIndex: 'code', width: 140, render: (v: string) => <Text code>{v}</Text> },
+                  { title: '名称', dataIndex: 'name', width: 100 },
+                  { title: '类型', dataIndex: 'data_type', width: 90, render: (v: string) => <Tag>{v}</Tag> },
+                  { title: '分类', dataIndex: 'category', width: 80, render: (v: string) => <Tag color="blue">{v}</Tag> },
+                  { title: '质量规则', dataIndex: 'quality_rule', ellipsis: true },
+                ]} />
+            )}
+          </Card>
+
+          {/* 字段映射 */}
+          <Card title="字段映射" size="small" style={{ marginBottom: 16 }}
+            extra={<Space>
+              <Button size="small" onClick={() => handleAutoMap(3)}>自动映射(数据源3)</Button>
+            </Space>}>
+            {mappings.length === 0 ? <Text type="secondary">暂无映射, 点击"自动映射"</Text> : (
+              <Table dataSource={mappings} rowKey="id" size="small" pagination={false}
+                columns={[
+                  { title: '源表', dataIndex: 'source_table', width: 120, ellipsis: true },
+                  { title: '源字段', dataIndex: 'source_field', width: 120, render: (v: string) => <Text code>{v}</Text> },
+                  { title: '标准ID', dataIndex: 'standard_id', width: 70 },
+                  { title: '方式', dataIndex: 'transform_rule', width: 70, render: (v: string) => <Tag color="green">{v}</Tag> },
+                ]} />
+            )}
+          </Card>
+
+          {/* 编码字典 */}
+          <Card title="编码字典" size="small"
+            extra={<Button size="small" icon={<PlusOutlined />} onClick={() => { dictForm.resetFields(); setDictFormOpen(true) }}>新增编码</Button>}>
+            {codeDicts.length === 0 ? <Text type="secondary">暂无编码字典</Text> : (
+              <Table dataSource={codeDicts} rowKey="id" size="small" pagination={false}
+                columns={[
+                  { title: '字典', dataIndex: 'name', width: 100 },
+                  { title: '编码', dataIndex: 'code', width: 100, render: (v: string) => <Text code>{v}</Text> },
+                  { title: '原始值', dataIndex: 'source_value', width: 80 },
+                  { title: '标准值', dataIndex: 'standard_value', width: 100, render: (v: string) => <Tag color="green">{v}</Tag> },
+                ]} />
+            )}
+          </Card>
+        </div>
+      ),
+    },
+
+    // ---- Tab 6: 成员管理 ----
     {
       key: 'members',
       label: `成员 (${members.length})`,
@@ -781,7 +878,7 @@ export default function ProjectDetail() {
       ),
     },
 
-    // ---- Tab 6: 审计日志 ----
+    // ---- Tab 7: 审计日志 ----
     {
       key: 'audit',
       label: '审计日志',
@@ -906,6 +1003,37 @@ export default function ProjectDetail() {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} />
           </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ======== 标准字段弹窗 ======== */}
+      <Modal title="新增标准字段" open={stdFormOpen}
+        onCancel={() => { setStdFormOpen(false); stdForm.resetFields() }}
+        onOk={() => stdForm.submit()}>
+        <Form form={stdForm} layout="vertical" onFinish={handleCreateStandard}>
+          <Form.Item name="code" label="字段编码" rules={[{ required: true }]}><Input placeholder="WORK_ORDER_CODE" /></Form.Item>
+          <Form.Item name="name" label="字段名称" rules={[{ required: true }]}><Input placeholder="工单号" /></Form.Item>
+          <Form.Item name="data_type" label="数据类型" initialValue="VARCHAR"><Input placeholder="VARCHAR(50)" /></Form.Item>
+          <Form.Item name="category" label="分类" initialValue="dimension">
+            <Select options={[
+              { value: 'dimension', label: '维度字段' }, { value: 'measure', label: '指标字段' },
+              { value: 'status', label: '状态字段' }, { value: 'time', label: '时间字段' },
+              { value: 'relation', label: '关联字段' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="quality_rule" label="质量规则"><Input placeholder="not_null" /></Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ======== 编码字典弹窗 ======== */}
+      <Modal title="新增编码映射" open={dictFormOpen}
+        onCancel={() => { setDictFormOpen(false); dictForm.resetFields() }}
+        onOk={() => dictForm.submit()}>
+        <Form form={dictForm} layout="vertical" onFinish={handleCreateCodeDict}>
+          <Form.Item name="name" label="字典名称" rules={[{ required: true }]}><Input placeholder="工单状态" /></Form.Item>
+          <Form.Item name="code" label="编码" rules={[{ required: true }]}><Input placeholder="order_status" /></Form.Item>
+          <Form.Item name="source_value" label="原始值" rules={[{ required: true }]}><Input placeholder="0" /></Form.Item>
+          <Form.Item name="standard_value" label="标准值" rules={[{ required: true }]}><Input placeholder="未发布" /></Form.Item>
         </Form>
       </Modal>
 
