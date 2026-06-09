@@ -310,15 +310,29 @@ async def run_pipeline(
                     sp = get_silver_path(pl.project_id or 0, f"{pl.name}/{tbl}")
                     sk = f"{sp}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
                     write_dataframe(df_tbl, settings.MINIO_BUCKET_SILVER, sk)
-                    # 写入 Gold — 表名用 ASCII (pl.id 唯一), 中文非法
-                    safe_name = pl.name.encode('ascii', 'ignore').decode('ascii').strip('_') or f"task{pl.id}"
-                    gold_table = f"{tbl}_{safe_name}"[:60]  # PG 表名最长63字符
+                    # 写入 Gold: 表名不变, 旧数据归档到 _history
+                    gold_table = tbl  # 表名=源表名
+                    history_table = f"{tbl}_history"
                     try:
                         from sqlalchemy import create_engine as sync_ce, text as sa_text
                         pg_engine = sync_ce(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+                        # 追加 _cleaned_at 列标记清洗时间
+                        df_tbl["_cleaned_at"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                        # 归档旧数据到 history 表
+                        with pg_engine.connect() as c:
+                            try:
+                                c.execute(sa_text(f"CREATE TABLE IF NOT EXISTS {history_table} AS SELECT *, NOW() AS _archived_at FROM {gold_table} WHERE 1=0"))
+                                c.execute(sa_text(f"INSERT INTO {history_table} SELECT *, NOW() FROM {gold_table}"))
+                                c.commit()
+                            except Exception: pass
+
+                        # 写入最新数据 (replace)
                         df_tbl.to_sql(gold_table, pg_engine, if_exists="replace", index=False)
                         if "id" in df_tbl.columns:
-                            with pg_engine.connect() as c: c.execute(sa_text(f"ALTER TABLE {gold_table} ADD PRIMARY KEY (id)")); c.commit()
+                            with pg_engine.connect() as c:
+                                try: c.execute(sa_text(f"ALTER TABLE {gold_table} ADD PRIMARY KEY (id)")); c.commit()
+                                except Exception: pass
                         pg_engine.dispose()
                     except Exception: pass
 
