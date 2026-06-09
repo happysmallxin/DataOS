@@ -19,7 +19,7 @@ class StandardCreate(BaseModel):
     code: str; name: str; description: Optional[str] = None
     data_type: str = "VARCHAR"; length: Optional[int] = None
     category: str = "dimension"; domain_id: Optional[int] = None
-    quality_rule: Optional[str] = None
+    scope: str = "project"; quality_rule: Optional[str] = None  # project/global
 
 class MappingCreate(BaseModel):
     datasource_id: Optional[int] = None; source_table: str; source_field: str
@@ -33,9 +33,12 @@ class DictCreate(BaseModel):
 @router.get("/api/v1/projects/{project_id}/standards")
 async def list_standards(project_id: int, category: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
-    stmt = select(DataStandard).where(DataStandard.project_id == project_id)
+    # 项目标准 + 公司级全局标准
+    stmt = select(DataStandard).where(
+        (DataStandard.project_id == project_id) | (DataStandard.scope == "global")
+    )
     if category: stmt = stmt.where(DataStandard.category == category)
-    result = await db.execute(stmt.order_by(DataStandard.category, DataStandard.code))
+    result = await db.execute(stmt.order_by(DataStandard.scope.desc(), DataStandard.category, DataStandard.code))
     return result.scalars().all()
 
 @router.post("/api/v1/projects/{project_id}/standards", status_code=201)

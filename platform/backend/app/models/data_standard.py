@@ -16,6 +16,7 @@ class DataStandard(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(32), default="project")  # project(项目级) / global(公司级, 所有项目可见)
     domain_id: Mapped[Optional[int]] = mapped_column(ForeignKey("data_domains.id", ondelete="SET NULL"), nullable=True)
     code: Mapped[str] = mapped_column(String(128), nullable=False)             # 标准字段编码: WORK_ORDER_CODE
     name: Mapped[str] = mapped_column(String(256), nullable=False)             # 字段名称: 工单号
