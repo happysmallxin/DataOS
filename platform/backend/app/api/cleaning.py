@@ -455,7 +455,7 @@ async def batch_create_pipelines(
 
     # 创建一个清洗任务, source_table 存所有表名(逗号分隔)
     all_tables = req.table_names
-    task_name = template_name or f"清洗{len(all_tables)}表"
+    task_name = f"{template_name or '清洗'}_{pd.Timestamp.now().strftime('%H%M%S')}"
     pl = PipelineModel(
         project_id=ds.project_id or 0, datasource_id=req.datasource_id,
         name=task_name, source_table=",".join(all_tables), target_table="",
