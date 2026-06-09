@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer, Checkbox, Upload } from 'antd'
+import { Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Popconfirm, Drawer, Checkbox, Upload, Tooltip } from 'antd'
 import {
   PlusOutlined, ReloadOutlined, DatabaseOutlined, ApiOutlined,
   SyncOutlined, DeleteOutlined, EyeOutlined, TableOutlined, HistoryOutlined, UploadOutlined, InboxOutlined,
@@ -234,6 +234,8 @@ export default function DataSources() {
             onClick={() => handleOpenHistory(record.id)}>
             历史
           </Button>
+          <Tooltip title="MinIO 控制台"><Button size="small" icon={<TableOutlined />}
+            onClick={() => window.open('http://localhost:9001/browser/bronze', '_blank')} /></Tooltip>
           {can('datasource:delete') && (
             <Popconfirm title="确认删除该数据源?" onConfirm={() => handleDelete(record.id)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
