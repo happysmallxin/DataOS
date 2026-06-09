@@ -91,7 +91,7 @@ export default function DataSources() {
         } else {
           // 粘贴 SQL 模式
           await apiClient.post('/datasources', {
-            project_id: 1,  // 默认项目
+            project_id: 3,  // 演示项目
             name: values.name,
             source_type: values.source_type,
             config: { sql_content: values.sql_content || '' },
@@ -100,7 +100,7 @@ export default function DataSources() {
         }
       } else {
         await apiClient.post('/datasources', {
-          project_id: 1,  // 默认项目
+          project_id: 3,  // 演示项目
           name: values.name,
           source_type: values.source_type,
           config: {

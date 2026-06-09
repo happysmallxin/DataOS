@@ -105,12 +105,12 @@ async def create_datasource(
     db.add(ds)
     try:
         await db.flush()
-    except IntegrityError:
+    except IntegrityError as e:
         await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=f"项目内已存在同名数据源 '{req.name}'",
-        )
+        msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "Duplicate" in msg or "uq_" in msg.lower():
+            raise HTTPException(status_code=409, detail=f"项目内已存在同名数据源 '{req.name}'")
+        raise HTTPException(status_code=400, detail=f"数据源创建失败: 请检查项目ID是否存在")
     await db.refresh(ds)
 
     # 审计日志
