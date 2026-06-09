@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit, crawlers, jobs, domains, standards
+from app.api import auth, health, projects, datasources, quality, cleaning, permissions, audit, crawlers, jobs, domains, standards, modeling
 from app.core.config import settings
 from app.core.database import engine, Base, AsyncSessionLocal
 
@@ -31,6 +31,7 @@ import app.models.sync_history      # noqa: F401 — 数据同步历史
 import app.models.data_domain       # noqa: F401 — 数据域+业务过程
 import app.models.data_standard     # noqa: F401 — 数据标准+字段映射+编码字典
 import app.models.cleaning_template # noqa: F401 — 清洗规则模板
+import app.models.model_table      # noqa: F401 — 模型表+字段
 
 
 # ============================================================
@@ -421,6 +422,7 @@ app.include_router(crawlers.router)
 app.include_router(jobs.router)
 app.include_router(domains.router)
 app.include_router(standards.router)
+app.include_router(modeling.router)
 
 # 注册 Worker 处理函数 + 启动后台线程
 from app.workers import init_handlers
