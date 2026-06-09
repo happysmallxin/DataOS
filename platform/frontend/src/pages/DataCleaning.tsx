@@ -57,7 +57,7 @@ export default function DataCleaning() {
 
   const fetchTables = async (id: number) => {
     try {
-      const resp = await apiClient.post(`/datasources/${id}/tables`)
+      const resp = await apiClient.post(`/datasources/${id}/tables/synced`)
       setTables(resp.data || [])
     } catch { /* ignore */ }
   }
@@ -221,8 +221,13 @@ export default function DataCleaning() {
         )}
       </Card>
 
-      {/* 选表绑定 */}
+      {/* 选表绑定 — 只显示已同步的表 */}
       <Card title="选择要清洗的表" size="small" style={{ marginBottom: 16 }}>
+        {tables.length === 0 && (
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            暂无已同步的表，请先在「数据接入」页面同步数据到 MinIO
+          </Text>
+        )}
         <Space style={{ marginBottom: 12 }}>
           <Text>数据源:</Text>
           <Select value={dsId} onChange={setDsId} style={{ width: 180 }}
@@ -252,7 +257,7 @@ export default function DataCleaning() {
             }}>
               <Checkbox checked={selectedTables.has(t.name)} style={{ marginRight: 4 }} />
               <Text strong>{t.name}</Text>
-              <Text type="secondary" style={{ fontSize: 11 }}> ({t.columns.length}列)</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}> ({t.file_count || t.columns?.length || '?'})</Text>
             </div>
           ))}
         </div>

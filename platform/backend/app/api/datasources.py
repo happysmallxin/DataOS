@@ -349,6 +349,44 @@ async def test_connection(
         return {"status": "error", "message": f"连接失败: {str(e)}"}
 
 
+@router.post("/{ds_id}/tables/synced")
+async def list_synced_tables(
+    ds_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取已同步到 MinIO 的表列表 (清洗模块用)."""
+    ds = await db.get(DataSource, ds_id)
+    if not ds: raise HTTPException(404, "数据源不存在")
+    from app.core.minio_client import list_objects, get_bronze_path
+    from app.core.config import settings
+
+    tables = []
+    try:
+        prefix = get_bronze_path(ds.project_id or 0, ds_id, "")
+        objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
+        seen = set()
+        for obj in objects:
+            parts = obj["key"].split("/")
+            # path: projects/{pid}/datasources/{dsid}/{table}/{date}/file.parquet
+            if len(parts) >= 5:
+                tbl = parts[4]
+                if tbl not in seen:
+                    seen.add(tbl)
+                    # 获取最近同步时间和行数
+                    tbl_objects = [o for o in objects if f"/{tbl}/" in o["key"]]
+                    latest = sorted(tbl_objects, key=lambda o: o["last_modified"], reverse=True)[0]
+                    tables.append({
+                        "name": tbl,
+                        "last_sync": str(latest["last_modified"]),
+                        "size_bytes": latest["size"],
+                        "file_count": len(tbl_objects),
+                    })
+    except Exception:
+        pass
+    return sorted(tables, key=lambda t: t["last_sync"], reverse=True)
+
+
 @router.post("/{ds_id}/tables")
 async def list_source_tables(
     ds_id: int,
