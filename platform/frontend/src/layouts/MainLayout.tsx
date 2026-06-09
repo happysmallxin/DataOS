@@ -30,13 +30,10 @@ interface MenuItem {
 const allMenuItems: MenuItem[] = [
   { key: '/', icon: <DashboardOutlined />, label: '首页总览' },
   { key: '/datasources', icon: <DatabaseOutlined />, label: '数据接入', permission: 'datasource:read' },
-  { key: '/projects', icon: <ProjectOutlined />, label: '数据标准', permission: 'project:read' },
-  { key: '/projects', icon: <SafetyCertificateOutlined />, label: '数据清洗', permission: 'project:read' },
-  { key: '/projects', icon: <ApartmentOutlined />, label: '数据建模', permission: 'project:read' },
-  { key: '/data-service', icon: <ApiOutlined />, label: '数据集生成', permission: 'api:read' },
+  { key: '/cleaning', icon: <SafetyCertificateOutlined />, label: '数据清洗', permission: 'project:read' },
+  { key: '/modeling', icon: <ApartmentOutlined />, label: '数据建模', permission: 'project:read' },
+  { key: '/datasets', icon: <ApiOutlined />, label: '数据集生成', permission: 'api:read' },
   { key: '/quality', icon: <SafetyCertificateOutlined />, label: '质量校验', permission: 'quality:read' },
-  { key: '/audit-logs', icon: <AuditOutlined />, label: '标签分类', permission: 'platform:audit' },
-  { key: '/crawlers', icon: <BugOutlined />, label: '任务调度', permission: 'crawler:read' },
   { key: '/settings', icon: <SettingOutlined />, label: '系统配置' },
   { key: '/users', icon: <TeamOutlined />, label: '用户管理', permission: 'user:read' },
 ]
