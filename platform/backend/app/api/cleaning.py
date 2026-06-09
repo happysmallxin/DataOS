@@ -454,6 +454,7 @@ async def batch_create_pipelines(
         stages = [{"rule_type": "structure_check", "rule_name": "默认检查", "target": "all_columns", "severity": "warning", "action": "check"}]
 
     # 创建一个清洗任务, source_table 存所有表名(逗号分隔)
+    import pandas as pd
     all_tables = req.table_names
     task_name = f"{template_name or '清洗'}_{pd.Timestamp.now().strftime('%H%M%S')}"
     pl = PipelineModel(
@@ -468,7 +469,6 @@ async def batch_create_pipelines(
     await db.commit()
 
     # 自动执行清洗 (跳过未同步的表, 单表失败不影响整体)
-    import pandas as pd
     run_result = {"tables_done": 0, "total_rows": 0, "skipped": 0, "errors": []}
     for tbl in all_tables:
         try:
