@@ -81,10 +81,7 @@ export default function DataCleaning() {
     <div>
       <div className="flex justify-between items-center mb-4">
         <Title level={4} style={{ margin: 0 }}>数据清洗</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchAll}>刷新</Button>
-          <Button icon={<PlusOutlined />} onClick={() => { tplForm.resetFields(); setTplOpen(true) }}>新建规则模板</Button>
-        </Space>
+        <Button icon={<ReloadOutlined />} onClick={fetchAll}>刷新</Button>
       </div>
 
       {/* 规则模板 — MES 风格表格 */}
