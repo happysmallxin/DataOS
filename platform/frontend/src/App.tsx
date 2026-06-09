@@ -6,9 +6,10 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import DataSources from './pages/DataSources'
-import Crawlers from './pages/Crawlers'
 import DataQuality from './pages/DataQuality'
-import DataAPI from './pages/DataAPI'
+import DataCleaning from './pages/DataCleaning'
+import DataModeling from './pages/DataModeling'
+import DatasetGeneration from './pages/DatasetGeneration'
 import Settings from './pages/Settings'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
@@ -65,10 +66,26 @@ export default function App() {
             }
           />
           <Route
-            path="crawlers"
+            path="cleaning"
             element={
-              <ProtectedRoute permission="crawler:read">
-                <Crawlers />
+              <ProtectedRoute permission="project:read">
+                <DataCleaning />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="modeling"
+            element={
+              <ProtectedRoute permission="project:read">
+                <DataModeling />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="datasets"
+            element={
+              <ProtectedRoute permission="api:read">
+                <DatasetGeneration />
               </ProtectedRoute>
             }
           />
@@ -77,14 +94,6 @@ export default function App() {
             element={
               <ProtectedRoute permission="quality:read">
                 <DataQuality />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="data-service"
-            element={
-              <ProtectedRoute permission="api:read">
-                <DataAPI />
               </ProtectedRoute>
             }
           />
