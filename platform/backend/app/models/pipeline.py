@@ -29,7 +29,7 @@ class CleaningPipeline(Base):
         ForeignKey("datasources.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # 源表名 — 处理数据源的哪张表
-    source_table: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    source_table: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # Pipeline 描述
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
