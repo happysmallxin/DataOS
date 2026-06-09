@@ -75,8 +75,7 @@ export default function DataCleaning() {
         target_prefix: '',
         template_id: selectedTemplate || null,
       })
-      const run = resp.data.run
-      message.success(`清洗完成: ${resp.data.name} - ${run?.tables_done || 0}/${resp.data.table_count} 张表, ${run?.total_rows || 0} 行`)
+      message.success(`清洗任务已创建: ${resp.data.name} (${resp.data.table_count} 张表), 点击 [执行] 开始清洗`)
       setSelectedTables(new Set()); fetchAll()
     } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
     finally { setBatchCreating(false) }
