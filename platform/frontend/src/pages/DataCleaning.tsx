@@ -75,7 +75,7 @@ export default function DataCleaning() {
         target_prefix: 'clean_',
         template_id: selectedTemplate || null,
       })
-      message.success(`清洗任务已创建: ${resp.data.pipeline_name} (${resp.data.tables?.length || 0} 张表)`)
+      message.success(`已创建 ${resp.data.created} 条 Pipeline (${resp.data.template || '默认规则'})`)
       setSelectedTables(new Set()); fetchAll()
     } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }
     finally { setBatchCreating(false) }

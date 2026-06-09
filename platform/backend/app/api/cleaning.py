@@ -289,23 +289,12 @@ async def run_pipeline(
             from app.core.minio_client import list_objects, read_dataframe, get_bronze_path
             from app.core.config import settings
 
-            # 支持多表: source_table 用逗号分隔
-            tables_to_process = [t.strip() for t in pl.source_table.split(",") if t.strip()]
-            all_dfs = []
-            for tbl in tables_to_process:
-                prefix = get_bronze_path(pl.project_id, pl.datasource_id, tbl)
-                objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
-                if not objects:
-                    continue
-                latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
-                df_tbl = read_dataframe(settings.MINIO_BUCKET_BRONZE, latest["key"])
-                df_tbl["_source_table"] = tbl
-                all_dfs.append(df_tbl)
-
-            if not all_dfs:
-                raise HTTPException(status_code=400, detail="所有表尚未同步到 MinIO，请先执行数据同步")
-
-            df = pd.concat(all_dfs, ignore_index=True)
+            prefix = get_bronze_path(pl.project_id, pl.datasource_id, pl.source_table)
+            objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
+            if not objects:
+                raise HTTPException(status_code=400, detail=f"表 {pl.source_table} 尚未同步到 MinIO，请先执行数据同步")
+            latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
+            df = read_dataframe(settings.MINIO_BUCKET_BRONZE, latest["key"])
 
     # 直接传入的数据优先 (向后兼容)
     if df.empty and req.data:
@@ -453,24 +442,22 @@ async def batch_create_pipelines(
     if not stages:
         stages = [{"rule_type": "structure_check", "rule_name": "默认检查", "target": "all_columns", "severity": "warning", "action": "check"}]
 
-    # 创建一个 Pipeline，source_table 存所有表名(逗号分隔), 支持多表清洗
-    all_tables = table_names  # list of table names
-    pl = PipelineModel(
-        project_id=ds.project_id or 0,
-        datasource_id=datasource_id,
-        name=f"{target_prefix}{template_name or 'batch'}_{len(all_tables)}tables",
-        source_table=",".join(all_tables),  # 多表用逗号分隔
-        target_table=f"clean_{template_name or 'batch'}",  # 多表合并输出到一张目标表
-        description=f"批量清洗 {len(all_tables)} 张表: {', '.join(all_tables[:5])}",
-        stages=stages,
-        created_by=current_user.id,
-    )
-    db.add(pl)
-    await db.flush()
-    await db.refresh(pl)
-    await db.commit()
+    # 每张源表创建一条 Pipeline，目标表名 = prefix + 源表名
+    created = []
+    for tbl in req.table_names:
+        target = f"{req.target_prefix}{tbl}" if req.target_prefix else tbl
+        pl = PipelineModel(
+            project_id=ds.project_id or 0, datasource_id=req.datasource_id,
+            name=f"{req.target_prefix}{tbl}", source_table=tbl, target_table=target,
+            description=f"{template_name} - {tbl}" if template_name else tbl,
+            stages=stages, created_by=current_user.id,
+        )
+        db.add(pl)
+        await db.flush()
+        created.append({"id": pl.id, "name": pl.name, "source": tbl, "target": target})
 
-    return {"created": 1, "pipeline_id": pl.id, "pipeline_name": pl.name, "tables": all_tables, "template": template_name}
+    await db.commit()
+    return {"created": len(created), "pipelines": created, "template": template_name}
 
 
 @router.get("/stages")
