@@ -69,9 +69,12 @@ export default function DataCleaning() {
     if (selectedTables.size === 0) return
     setBatchCreating(true)
     try {
-      const params: any = { datasource_id: dsId, tables: Array.from(selectedTables), target_prefix: 'clean_' }
-      if (selectedTemplate) params.template_id = selectedTemplate
-      const resp = await apiClient.post('/cleaning/batch-create-pipelines', null, { params })
+      const resp = await apiClient.post('/cleaning/batch-create-pipelines', {
+        datasource_id: dsId,
+        table_names: Array.from(selectedTables),
+        target_prefix: 'clean_',
+        template_id: selectedTemplate || null,
+      })
       message.success(`清洗任务已创建: ${resp.data.pipeline_name} (${resp.data.tables?.length || 0} 张表)`)
       setSelectedTables(new Set()); fetchAll()
     } catch (err: any) { message.error(err.response?.data?.detail || '创建失败') }

@@ -421,18 +421,25 @@ async def delete_template(tid: int, db: AsyncSession = Depends(get_db), _: User 
 
 # ---- 批量创建 Pipeline (选表 + 模板) ----
 
+class BatchCreateRequest(PydanticBaseModel):
+    datasource_id: int
+    table_names: list[str] = []
+    template_id: int | None = None
+    target_prefix: str = "clean_"
+
 @router.post("/batch-create-pipelines")
 async def batch_create_pipelines(
-    datasource_id: int = Query(...),
-    table_names: list[str] = Query(default_factory=list, alias="tables"),
-    template_id: int | None = Query(None),
-    target_prefix: str = Query(default="clean_"),
+    req: BatchCreateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """选多张表 + 一个规则模板 → 创建一个清洗任务 (含多张表)."""
+    """选多张表 + 一个规则模板 -> 创建一个清洗任务 (含多张表)."""
     from app.models.datasource import DataSource as DS
-    ds = await db.get(DS, datasource_id)
+    ds = await db.get(DS, req.datasource_id)
+    datasource_id = req.datasource_id
+    table_names = req.table_names
+    template_id = req.template_id
+    target_prefix = req.target_prefix
     if not ds: raise HTTPException(404, "数据源不存在")
 
     stages = []
