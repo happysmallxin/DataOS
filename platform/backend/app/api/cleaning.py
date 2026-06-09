@@ -281,6 +281,8 @@ async def run_pipeline(
             raise HTTPException(status_code=404, detail="Pipeline 不存在")
         if not stages:
             stages = pl.stages
+        # 转换新模板格式 → 引擎格式
+        stages = [_convert_stage(s) for s in stages if _convert_stage(s)]
         pipeline_name = pl.name
         pipeline_version = pl.version
 
@@ -290,22 +292,42 @@ async def run_pipeline(
             from app.core.config import settings
 
             # 支持多表: source_table 逗号分隔, 逐表处理
+            from app.core.minio_client import write_dataframe, get_silver_path
             tables = [t.strip() for t in pl.source_table.split(",") if t.strip()]
-            total_rows = 0
+            run_results = []
             for tbl in tables:
-                prefix = get_bronze_path(pl.project_id, pl.datasource_id, tbl)
-                objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
-                if not objects:
-                    continue
-                latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
-                df = read_dataframe(settings.MINIO_BUCKET_BRONZE, latest["key"])
-                total_rows += len(df)
-                pipeline_engine.run(df=df, stages=stages, pipeline_name=f"{pl.name}/{tbl}", pipeline_version=pl.version)
+                try:
+                    prefix = get_bronze_path(pl.project_id, pl.datasource_id, tbl)
+                    objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
+                    if not objects:
+                        run_results.append({"table": tbl, "status": "skipped", "reason": "未同步"})
+                        continue
+                    latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
+                    df_tbl = read_dataframe(settings.MINIO_BUCKET_BRONZE, latest["key"])
+                    pipeline_engine.run(df=df_tbl, stages=stages, pipeline_name=f"{pl.name}/{tbl}", pipeline_version=pl.version)
 
-            # 使用最后一张表的 df 继续写入逻辑
-            if not tables:
-                raise HTTPException(status_code=400, detail="没有可处理的表")
-            # df 已经是最后一个表的 DataFrame
+                    # 写入 Silver
+                    sp = get_silver_path(pl.project_id or 0, f"{pl.name}/{tbl}")
+                    sk = f"{sp}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+                    write_dataframe(df_tbl, settings.MINIO_BUCKET_SILVER, sk)
+                    # 写入 Gold
+                    try:
+                        from sqlalchemy import create_engine as sync_ce, text as sa_text
+                        pg_engine = sync_ce(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
+                        df_tbl.to_sql(tbl, pg_engine, if_exists="replace", index=False)
+                        if "id" in df_tbl.columns:
+                            with pg_engine.connect() as c: c.execute(sa_text(f"ALTER TABLE {tbl} ADD PRIMARY KEY (id)")); c.commit()
+                        pg_engine.dispose()
+                    except Exception: pass
+
+                    run_results.append({"table": tbl, "status": "ok", "rows": len(df_tbl)})
+                except Exception as e:
+                    run_results.append({"table": tbl, "status": "error", "reason": str(e)[:80]})
+
+            pl.last_run_at = pd.Timestamp.now()
+            pl.last_output_rows = sum(r.get("rows", 0) for r in run_results)
+            await db.commit()
+            return {"pipeline_name": pl.name, "status": "completed", "tables": run_results, "total_rows": pl.last_output_rows}
 
     # 直接传入的数据优先 (向后兼容)
     if df.empty and req.data:
@@ -378,6 +400,38 @@ async def run_pipeline(
         "postgresql": pg_result,
     }
     return result
+
+
+def _convert_stage(s: dict) -> dict | None:
+    """将模板规则格式转换为 Pipeline 引擎格式."""
+    rt = s.get("rule_type", s.get("type", ""))
+    target = s.get("target", s.get("column", "*"))
+    action = s.get("action", "")
+    cfg = s.get("config", {})
+
+    # 映射表: rule_type → (engine_type, engine_config)
+    mapping = {
+        "structure_check": ("standardize", {"column": target, "operation": action}),
+        "field_standardize": ("standardize", {"column": target, "operation": action}),
+        "status_standardize": ("standardize", {"column": target, "operation": "map_values", "mapping": cfg.get("mapping", {})}),
+        "primary_key": ("quality_gate", {"rules": [{"column": target, "type": "not_null"}]}),
+        "time_logic": None,  # 跳过 — 引擎不支持时间逻辑校验
+        "quantity_check": None,  # 跳过 — 引擎不支持数量校验
+        "code_mapping": ("standardize", {"column": target, "operation": "trim"}),
+        "standardize": ("standardize", {"column": target, "operation": action or cfg.get("operation", "trim")}),
+        "dedup": ("dedup", {"subset": [target], "keep": "last"}),
+    }
+
+    if rt in mapping:
+        m = mapping[rt]
+        if m is None:
+            return None  # 不支持的规则类型, 跳过
+        engine_type, engine_cfg = m
+        return {"type": engine_type, "config": engine_cfg}
+    # 已有 type 字段的直接返回 (兼容旧格式)
+    if s.get("type"):
+        return s
+    return None
 
 
 # ---- 清洗规则模板 ----
