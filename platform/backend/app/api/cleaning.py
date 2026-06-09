@@ -480,7 +480,7 @@ async def delete_template(tid: int, db: AsyncSession = Depends(get_db), _: User 
 class BatchCreateRequest(PydanticBaseModel):
     datasource_id: int
     table_names: list[str] = []
-    template_id: int | None = None
+    template_ids: list[int] = []
     target_prefix: str = ""
 
 @router.post("/batch-create-pipelines")
@@ -492,24 +492,21 @@ async def batch_create_pipelines(
     """选多张表 + 一个规则模板 -> 创建一个清洗任务 (含多张表)."""
     from app.models.datasource import DataSource as DS
     ds = await db.get(DS, req.datasource_id)
-    datasource_id = req.datasource_id
-    table_names = req.table_names
-    template_id = req.template_id
-    target_prefix = req.target_prefix
     if not ds: raise HTTPException(404, "数据源不存在")
 
+    # 合并多个模板的规则
     stages = []
-    template_name = ""
-    if template_id:
-        t = await db.get(CleaningTemplate, template_id)
+    template_names = []
+    for tid in req.template_ids:
+        t = await db.get(CleaningTemplate, tid)
         if t:
-            stages = t.stages
-            template_name = t.display_name
-
+            stages.extend(t.stages)
+            template_names.append(t.display_name)
     if not stages:
         stages = [{"rule_type": "structure_check", "rule_name": "默认检查", "target": "all_columns", "severity": "warning", "action": "check"}]
+    template_name = "+".join(template_names) if template_names else ""
 
-    # 创建一个清洗任务, source_table 存所有表名(逗号分隔)
+    # 创建一个清洗任务
     import pandas as pd
     all_tables = req.table_names
     task_name = f"{template_name or '清洗'}_{pd.Timestamp.now().strftime('%H%M%S')}"

@@ -35,7 +35,7 @@ export default function DataCleaning() {
   const [dsId, setDsId] = useState(3)
   const [tables, setTables] = useState<TableInfo[]>([])
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
-  const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null)
+  const [selectedTemplatess, setSelectedTemplates] = useState<Set<number>>(new Set())
   const [running, setRunning] = useState<number | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplEditId, setTplEditId] = useState<number | null>(null)
@@ -73,7 +73,7 @@ export default function DataCleaning() {
         datasource_id: dsId,
         table_names: Array.from(selectedTables),
         target_prefix: '',
-        template_id: selectedTemplate || null,
+        template_ids: Array.from(selectedTemplates),
       })
       message.success(`清洗任务已创建: ${resp.data.name} (${resp.data.table_count} 张表), 点击 [执行] 开始清洗`)
       setSelectedTables(new Set()); fetchAll()
@@ -113,7 +113,7 @@ export default function DataCleaning() {
         ) : (
           <Row gutter={[12, 12]}>
             {templates.map(t => {
-              const isSelected = selectedTemplate === t.id
+              const isSelected = selectedTemplates.has(t.id)
               const isExpanded = expandedTpl.has(t.id)
               const rules = t.stages || []
               const ruleCount = rules.length
@@ -129,7 +129,11 @@ export default function DataCleaning() {
                       transition: 'all 0.2s',
                       height: '100%',
                     }}
-                    onClick={() => setSelectedTemplate(t.id === selectedTemplate ? null : t.id)}
+                    onClick={() => {
+                      const next = new Set(selectedTemplates)
+                      next.has(t.id) ? next.delete(t.id) : next.add(t.id)
+                      setSelectedTemplates(next)
+                    }}
                     styles={{ body: { padding: '12px 16px' } }}
                   >
                     {/* 标题行 */}
@@ -235,8 +239,8 @@ export default function DataCleaning() {
           <Text type="secondary">| 已选 {selectedTables.size} 张表</Text>
           <Button size="small" onClick={() => setSelectedTables(new Set(tables.map(t => t.name)))}>全选</Button>
           <Button size="small" onClick={() => setSelectedTables(new Set())}>取消</Button>
-          {selectedTemplate && (
-            <Tag color="green">模板: {templates.find(t => t.id === selectedTemplate)?.display_name}</Tag>
+          {selectedTemplates.size > 0 && (
+            <Tag color="green">已选 {selectedTemplates.size} 个模板: {[...selectedTemplates].map(id => templates.find(t => t.id === id)?.display_name).join(', ')}</Tag>
           )}
           <Button type="primary" icon={<ThunderboltOutlined />}
             loading={batchCreating} disabled={selectedTables.size === 0}
