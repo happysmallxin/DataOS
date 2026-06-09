@@ -72,7 +72,7 @@ export default function DataCleaning() {
       const resp = await apiClient.post('/cleaning/batch-create-pipelines', {
         datasource_id: dsId,
         table_names: Array.from(selectedTables),
-        target_prefix: 'clean_',
+        target_prefix: '',
         template_id: selectedTemplate || null,
       })
       message.success(`已创建 ${resp.data.created} 条 Pipeline (${resp.data.template || '默认规则'})`)

@@ -414,7 +414,7 @@ class BatchCreateRequest(PydanticBaseModel):
     datasource_id: int
     table_names: list[str] = []
     template_id: int | None = None
-    target_prefix: str = "clean_"
+    target_prefix: str = ""
 
 @router.post("/batch-create-pipelines")
 async def batch_create_pipelines(
