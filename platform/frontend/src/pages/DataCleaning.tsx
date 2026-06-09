@@ -35,7 +35,7 @@ export default function DataCleaning() {
   const [dsId, setDsId] = useState(3)
   const [tables, setTables] = useState<TableInfo[]>([])
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
-  const [selectedTemplatess, setSelectedTemplates] = useState<Set<number>>(new Set())
+  const [selectedTemplates, setSelectedTemplates] = useState<Set<number>>(new Set())
   const [running, setRunning] = useState<number | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
   const [tplEditId, setTplEditId] = useState<number | null>(null)
