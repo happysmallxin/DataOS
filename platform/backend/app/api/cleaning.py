@@ -310,13 +310,14 @@ async def run_pipeline(
                     sp = get_silver_path(pl.project_id or 0, f"{pl.name}/{tbl}")
                     sk = f"{sp}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
                     write_dataframe(df_tbl, settings.MINIO_BUCKET_SILVER, sk)
-                    # 写入 Gold
+                    # 写入 Gold — 目标表名 = 源表名_任务名, 避免不同规则互相覆盖
+                    gold_table = f"{tbl}_{pl.name}" if pl.name else tbl
                     try:
                         from sqlalchemy import create_engine as sync_ce, text as sa_text
                         pg_engine = sync_ce(settings.PG_GOLD_URL, connect_args={"connect_timeout": 5})
-                        df_tbl.to_sql(tbl, pg_engine, if_exists="replace", index=False)
+                        df_tbl.to_sql(gold_table, pg_engine, if_exists="replace", index=False)
                         if "id" in df_tbl.columns:
-                            with pg_engine.connect() as c: c.execute(sa_text(f"ALTER TABLE {tbl} ADD PRIMARY KEY (id)")); c.commit()
+                            with pg_engine.connect() as c: c.execute(sa_text(f"ALTER TABLE {gold_table} ADD PRIMARY KEY (id)")); c.commit()
                         pg_engine.dispose()
                     except Exception: pass
 
