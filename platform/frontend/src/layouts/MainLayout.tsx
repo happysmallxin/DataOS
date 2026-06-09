@@ -12,7 +12,7 @@ import {
   MenuUnfoldOutlined,
   LogoutOutlined,
   UserOutlined,
-  ProjectOutlined,
+  ProjectOutlined, ApartmentOutlined,
   TeamOutlined,
   AuditOutlined,
 } from '@ant-design/icons'
@@ -28,15 +28,17 @@ interface MenuItem {
 }
 
 const allMenuItems: MenuItem[] = [
-  { key: '/', icon: <DashboardOutlined />, label: '工作台' },
-  { key: '/projects', icon: <ProjectOutlined />, label: '项目管理', permission: 'project:read' },
-  { key: '/datasources', icon: <DatabaseOutlined />, label: '数据源管理', permission: 'datasource:read' },
-  { key: '/crawlers', icon: <BugOutlined />, label: '网页爬取', permission: 'crawler:read' },
-  { key: '/quality', icon: <SafetyCertificateOutlined />, label: '数据质量', permission: 'quality:read' },
-  { key: '/data-service', icon: <ApiOutlined />, label: '数据服务', permission: 'api:read' },
+  { key: '/', icon: <DashboardOutlined />, label: '首页总览' },
+  { key: '/datasources', icon: <DatabaseOutlined />, label: '数据接入', permission: 'datasource:read' },
+  { key: '/projects', icon: <ProjectOutlined />, label: '数据标准', permission: 'project:read' },
+  { key: '/projects', icon: <SafetyCertificateOutlined />, label: '数据清洗', permission: 'project:read' },
+  { key: '/projects', icon: <ApartmentOutlined />, label: '数据建模', permission: 'project:read' },
+  { key: '/data-service', icon: <ApiOutlined />, label: '数据集生成', permission: 'api:read' },
+  { key: '/quality', icon: <SafetyCertificateOutlined />, label: '质量校验', permission: 'quality:read' },
+  { key: '/audit-logs', icon: <AuditOutlined />, label: '标签分类', permission: 'platform:audit' },
+  { key: '/crawlers', icon: <BugOutlined />, label: '任务调度', permission: 'crawler:read' },
+  { key: '/settings', icon: <SettingOutlined />, label: '系统配置' },
   { key: '/users', icon: <TeamOutlined />, label: '用户管理', permission: 'user:read' },
-  { key: '/audit-logs', icon: <AuditOutlined />, label: '审计日志', permission: 'platform:audit' },
-  { key: '/settings', icon: <SettingOutlined />, label: '平台设置' },
 ]
 
 export default function MainLayout() {
