@@ -83,7 +83,7 @@ export default function DataSources() {
           const fd = new FormData()
           fd.append('file', file)
           fd.append('name', values.name)
-          fd.append('project_id', String(values.project_id || 1))
+          fd.append('project_id', '1')
           fd.append('description', values.description || '')
           await apiClient.post('/datasources/upload', fd, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -91,7 +91,7 @@ export default function DataSources() {
         } else {
           // 粘贴 SQL 模式
           await apiClient.post('/datasources', {
-            project_id: values.project_id || 1,
+            project_id: 1,  // 默认项目
             name: values.name,
             source_type: values.source_type,
             config: { sql_content: values.sql_content || '' },
@@ -100,7 +100,7 @@ export default function DataSources() {
         }
       } else {
         await apiClient.post('/datasources', {
-          project_id: values.project_id || 1,
+          project_id: 1,  // 默认项目
           name: values.name,
           source_type: values.source_type,
           config: {
@@ -267,9 +267,6 @@ export default function DataSources() {
       <Modal title="新增数据源" open={createOpen} onOk={handleCreate}
         onCancel={() => { setCreateOpen(false); form.resetFields() }} okText="创建">
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="project_id" label="项目 ID" initialValue={1}>
-            <Input type="number" />
-          </Form.Item>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}>
             <Input placeholder="生产MySQL" />
           </Form.Item>
