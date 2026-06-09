@@ -83,7 +83,6 @@ export default function DataSources() {
           const fd = new FormData()
           fd.append('file', file)
           fd.append('name', values.name)
-          fd.append('project_id', '1')
           fd.append('description', values.description || '')
           await apiClient.post('/datasources/upload', fd, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -91,7 +90,7 @@ export default function DataSources() {
         } else {
           // 粘贴 SQL 模式
           await apiClient.post('/datasources', {
-            project_id: 3,  // 演示项目
+            // project_id not required — datasources are system-level
             name: values.name,
             source_type: values.source_type,
             config: { sql_content: values.sql_content || '' },
@@ -100,7 +99,7 @@ export default function DataSources() {
         }
       } else {
         await apiClient.post('/datasources', {
-          project_id: 3,  // 演示项目
+          // project_id not required — datasources are system-level
           name: values.name,
           source_type: values.source_type,
           config: {

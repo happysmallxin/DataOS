@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import String, Text, DateTime, func, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
+from typing import Optional
 
 from app.core.database import Base
 
@@ -15,7 +16,7 @@ class DataSource(Base):
     __tablename__ = "datasources"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(ForeignKey("projects.id"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     # 数据源类型: mysql, postgresql, mongodb, kafka, api, s3, crawler, file 等
     source_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

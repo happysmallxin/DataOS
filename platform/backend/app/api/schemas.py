@@ -100,7 +100,7 @@ class ProjectTransferRequest(BaseModel):
 # DataSource
 # ============================================================
 class DataSourceCreate(BaseModel):
-    project_id: int = Field(default=1)
+    project_id: Optional[int] = None
     name: str = Field(..., max_length=128)
     source_type: str = Field(..., max_length=64)
     config: dict
@@ -109,7 +109,7 @@ class DataSourceCreate(BaseModel):
 
 class DataSourceResponse(BaseModel):
     id: int
-    project_id: int
+    project_id: Optional[int] = None
     name: str
     source_type: str
     config: dict

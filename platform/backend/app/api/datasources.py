@@ -68,35 +68,30 @@ async def create_datasource(
     db: AsyncSession = Depends(get_db),
 ):
     """注册新数据源 - 自动加密敏感配置."""
-    # 手动权限检查: project_id 在 body 中
-    global_roles = await get_user_global_roles(current_user.id, db)
-    is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
-    if not is_admin:
-        from app.models.project_member import ProjectMember as PM
-        member_row = await db.execute(
-            select(PM).where(PM.project_id == req.project_id, PM.user_id == current_user.id)
-        )
-        if not member_row.scalar_one_or_none():
-            raise HTTPException(status_code=403, detail="你不是该项目成员")
-
-    # 检查同项目下是否存在同名数据源 (P0: 唯一约束)
-    existing = await db.execute(
-        select(DataSource).where(
-            DataSource.project_id == req.project_id,
-            DataSource.name == req.name,
-        )
-    )
+    # 手动权限检查: project_id 可选
+    if req.project_id:
+        global_roles = await get_user_global_roles(current_user.id, db)
+        is_admin = any(r.name in GLOBAL_ADMIN_ROLES for r in global_roles)
+        if not is_admin:
+            from app.models.project_member import ProjectMember as PM
+            member_row = await db.execute(
+                select(PM).where(PM.project_id == req.project_id, PM.user_id == current_user.id)
+            )
+            if not member_row.scalar_one_or_none():
+                raise HTTPException(status_code=403, detail="你不是该项目成员")
+    # 检查是否存在同名数据源
+    existing_stmt = select(DataSource).where(DataSource.name == req.name)
+    if req.project_id:
+        existing_stmt = existing_stmt.where(DataSource.project_id == req.project_id)
+    existing = await db.execute(existing_stmt)
     if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=409,
-            detail=f"项目内已存在同名数据源 '{req.name}'",
-        )
+        raise HTTPException(status_code=409, detail=f"同名数据源 '{req.name}' 已存在")
 
     # 加密敏感字段
     encrypted_config = encrypt_config(req.config)
 
     ds = DataSource(
-        project_id=req.project_id,
+        project_id=req.project_id or None,
         name=req.name,
         source_type=req.source_type,
         config=encrypted_config,
@@ -148,7 +143,7 @@ async def create_datasource(
 async def upload_sqlfile(
     file: UploadFile = File(...),
     name: str = Form(...),
-    project_id: int = Form(...),
+    project_id: int = Form(default=0),
     description: str = Form(default=""),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -186,7 +181,7 @@ async def upload_sqlfile(
         raise HTTPException(status_code=409, detail=f"项目内已存在同名数据源 '{name}'")
 
     ds = DataSource(
-        project_id=project_id,
+        project_id=project_id if project_id > 0 else None,
         name=name,
         source_type="sqlfile",
         config={"sql_content": sql_content, "original_filename": file.filename},
@@ -520,7 +515,8 @@ async def sync_datasource(
 
         # 写入 MinIO (Bronze) - 始终写全量文件
         date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
-        prefix = get_bronze_path(ds.project_id, ds_id, req.table_name, date_str)
+        pid = ds.project_id or 0
+        prefix = get_bronze_path(pid, ds_id, req.table_name, date_str)
         key = f"{prefix}full_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
         result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
 
@@ -654,7 +650,8 @@ async def sync_all_tables(
             engine.dispose()
 
             date_str = pd.Timestamp.now().strftime("%Y-%m-%d")
-            prefix = get_bronze_path(ds.project_id, ds_id, table_name, date_str)
+            pid = ds.project_id or 0
+            prefix = get_bronze_path(pid, ds_id, table_name, date_str)
             mode = req.sync_mode or "full"
             key = f"{prefix}{mode}_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
             result = write_dataframe(df, settings.MINIO_BUCKET_BRONZE, key)
