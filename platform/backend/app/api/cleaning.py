@@ -453,7 +453,7 @@ async def batch_create_pipelines(
         datasource_id=datasource_id,
         name=f"{target_prefix}{template_name or 'batch'}_{len(all_tables)}tables",
         source_table=",".join(all_tables),  # 多表用逗号分隔
-        target_table="",  # 多表时目标表留空，执行时按源表名自动生成
+        target_table=f"clean_{template_name or 'batch'}",  # 多表合并输出到一张目标表
         description=f"批量清洗 {len(all_tables)} 张表: {', '.join(all_tables[:5])}",
         stages=stages,
         created_by=current_user.id,
