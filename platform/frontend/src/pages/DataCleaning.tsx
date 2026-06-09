@@ -2,7 +2,7 @@
  * 数据清洗 — 规则模板 + 选表绑定 (对齐 DataWorks).
  */
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Typography, Select, message, Popconfirm, Form, Modal, Input, Checkbox, Divider } from 'antd'
+import { Card, Table, Tag, Button, Space, Typography, Select, message, Popconfirm, Form, Modal, Input, Checkbox } from 'antd'
 import { PlusOutlined, ReloadOutlined, PlayCircleOutlined, DeleteOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import apiClient from '../utils/api'
 
