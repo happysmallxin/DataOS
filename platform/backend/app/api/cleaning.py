@@ -467,7 +467,42 @@ async def batch_create_pipelines(
     await db.refresh(pl)
     await db.commit()
 
-    return {"id": pl.id, "name": pl.name, "tables": all_tables, "table_count": len(all_tables), "template": template_name}
+    # 自动执行清洗
+    import pandas as pd
+    run_result = {"tables_done": 0, "total_rows": 0}
+    for tbl in all_tables:
+        try:
+            from app.core.minio_client import list_objects, read_dataframe, write_dataframe, get_bronze_path, get_silver_path
+            from app.core.config import settings as s
+            prefix = get_bronze_path(ds.project_id or 0, req.datasource_id, tbl)
+            objects = list_objects(s.MINIO_BUCKET_BRONZE, prefix)
+            if objects:
+                latest = sorted(objects, key=lambda o: o["last_modified"], reverse=True)[0]
+                df = read_dataframe(s.MINIO_BUCKET_BRONZE, latest["key"])
+                pipeline_engine.run(df=df, stages=stages, pipeline_name=f"{pl.name}/{tbl}", pipeline_version=1)
+
+                silver_prefix = get_silver_path(ds.project_id or 0, f"{pl.name}/{tbl}")
+                silver_key = f"{silver_prefix}clean_{pd.Timestamp.now().strftime('%H%M%S')}.parquet"
+                write_dataframe(df, s.MINIO_BUCKET_SILVER, silver_key)
+
+                try:
+                    from sqlalchemy import create_engine as sync_ce, text as sa_text
+                    pg_engine = sync_ce(s.PG_GOLD_URL, connect_args={"connect_timeout":5})
+                    df.to_sql(tbl, pg_engine, if_exists="replace", index=False)
+                    if "id" in df.columns:
+                        with pg_engine.connect() as c: c.execute(sa_text(f"ALTER TABLE {tbl} ADD PRIMARY KEY (id)")); c.commit()
+                    pg_engine.dispose()
+                except Exception: pass
+
+                run_result["tables_done"] += 1
+                run_result["total_rows"] += len(df)
+        except Exception: pass
+
+    pl.last_run_at = pd.Timestamp.now()
+    pl.last_output_rows = run_result["total_rows"]
+    await db.commit()
+
+    return {"id": pl.id, "name": pl.name, "tables": all_tables, "table_count": len(all_tables), "template": template_name, "run": run_result}
 
 
 @router.get("/stages")
