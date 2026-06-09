@@ -87,25 +87,56 @@ export default function DataCleaning() {
         </Space>
       </div>
 
-      {/* 规则模板 */}
-      <Card title="规则模板" size="small" style={{ marginBottom: 16 }}
-        extra={<Text type="secondary">{templates.length} 个模板</Text>}>
+      {/* 规则模板 — MES 风格表格 */}
+      <Card title="清洗规则模板" size="small" style={{ marginBottom: 16 }}
+        extra={<Button icon={<PlusOutlined />} size="small" onClick={() => { tplForm.resetFields(); setTplEditId(null); setTplOpen(true) }}>新建模板</Button>}>
         {templates.length === 0 ? (
-          <Text type="secondary">暂无模板，点击"新建规则模板"创建</Text>
+          <Text type="secondary">暂无模板，点击"新建模板"创建</Text>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {templates.map(t => (
-              <Tag key={t.id} color={selectedTemplate === t.id ? 'green' : 'blue'}
-                style={{ padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}
-                onClick={(e) => { e.stopPropagation(); setSelectedTemplate(t.id === selectedTemplate ? null : t.id) }}
-                onDoubleClick={() => { setTplEditId(t.id); tplForm.setFieldsValue({ name: t.name, display_name: t.display_name, stages: JSON.stringify(t.stages, null, 2), description: '' }); setTplOpen(true) }}
-                closable
-                onClose={(e) => { e.preventDefault(); setTplEditId(t.id); tplForm.setFieldsValue({ name: t.name, display_name: t.display_name, stages: JSON.stringify(t.stages, null, 2), description: '' }); setTplOpen(true) }}>
-                📋 {t.display_name} ({t.stages?.length || 0} 规则)
-                {selectedTemplate === t.id && ' ✓'}
-              </Tag>
-            ))}
-          </div>
+          templates.map(t => (
+            <Card key={t.id} size="small" style={{ marginBottom: 8 }}
+              title={
+                <Space>
+                  <Tag color={selectedTemplate === t.id ? 'green' : 'blue'}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setSelectedTemplate(t.id === selectedTemplate ? null : t.id)}>
+                    {selectedTemplate === t.id ? '✓ ' : ''}{t.display_name}
+                  </Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t.description?.substring(0, 60)}...</Text>
+                </Space>
+              }
+              extra={
+                <Space size="small">
+                  <Button size="small" onClick={() => { setTplEditId(t.id); tplForm.setFieldsValue({ name: t.name, display_name: t.display_name, stages: JSON.stringify(t.stages, null, 2), description: t.description || '' }); setTplOpen(true) }}>编辑</Button>
+                  <Popconfirm title="确认删除?" onConfirm={async () => { await apiClient.delete(`/cleaning/templates/${t.id}`); fetchAll() }}>
+                    <Button size="small" danger>删除</Button>
+                  </Popconfirm>
+                </Space>
+              }>
+              <Table dataSource={(t.stages || []).map((s: any, i: number) => ({ ...s, _key: i }))} rowKey="_key"
+                size="small" pagination={false} showHeader={t.stages?.length > 0}
+                columns={[
+                  { title: '规则名称', dataIndex: 'rule_name', width: 160, render: (v: string) => v ? <Text strong>{v}</Text> : <Text type="secondary">—</Text> },
+                  { title: '清洗类型', dataIndex: 'rule_type', width: 120, render: (v: string) => {
+                    const m: Record<string, {c:string,l:string}> = {
+                      structure_check:{c:'blue',l:'结构检查'}, primary_key:{c:'orange',l:'主键检查'},
+                      code_mapping:{c:'purple',l:'编码映射'}, status_standardize:{c:'green',l:'状态标准化'},
+                      time_logic:{c:'cyan',l:'时间逻辑'}, quantity_check:{c:'red',l:'数量合理性'},
+                      field_standardize:{c:'geekblue',l:'字段标准化'},
+                      standardize:{c:'default',l:'标准化'}, dedup:{c:'default',l:'去重'},
+                    }
+                    const info = m[v] || {c:'default',l:v}
+                    return <Tag color={info.c}>{info.l}</Tag>
+                  }},
+                  { title: '目标', dataIndex: 'target', width: 140, render: (v: string) => <Text code style={{fontSize:11}}>{v||'*'}</Text> },
+                  { title: '严重级别', dataIndex: 'severity', width: 80, render: (v: string) => {
+                    const colors: Record<string,string> = {error:'red',warning:'orange',info:'blue'}
+                    return <Tag color={colors[v]||'default'}>{v}</Tag>
+                  }},
+                  { title: '执行方式', dataIndex: 'action', width: 120, ellipsis: true },
+                ]} />
+            </Card>
+          ))
         )}
       </Card>
 
