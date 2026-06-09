@@ -22,6 +22,7 @@ export default function DataCleaning() {
   const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null)
   const [running, setRunning] = useState<number | null>(null)
   const [tplOpen, setTplOpen] = useState(false)
+  const [tplEditId, setTplEditId] = useState<number | null>(null)
   const [tplForm] = Form.useForm()
   const [batchCreating, setBatchCreating] = useState(false)
 
@@ -94,8 +95,12 @@ export default function DataCleaning() {
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {templates.map(t => (
-              <Tag key={t.id} color="blue" style={{ padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}
-                onClick={() => setSelectedTemplate(t.id === selectedTemplate ? null : t.id)}>
+              <Tag key={t.id} color={selectedTemplate === t.id ? 'green' : 'blue'}
+                style={{ padding: '4px 12px', fontSize: 13, cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); setSelectedTemplate(t.id === selectedTemplate ? null : t.id) }}
+                onDoubleClick={() => { setTplEditId(t.id); tplForm.setFieldsValue({ name: t.name, display_name: t.display_name, stages: JSON.stringify(t.stages, null, 2), description: '' }); setTplOpen(true) }}
+                closable
+                onClose={(e) => { e.preventDefault(); setTplEditId(t.id); tplForm.setFieldsValue({ name: t.name, display_name: t.display_name, stages: JSON.stringify(t.stages, null, 2), description: '' }); setTplOpen(true) }}>
                 📋 {t.display_name} ({t.stages?.length || 0} 规则)
                 {selectedTemplate === t.id && ' ✓'}
               </Tag>
@@ -162,9 +167,30 @@ export default function DataCleaning() {
       </Card>
 
       {/* 新建模板弹窗 */}
-      <Modal title="新建规则模板" open={tplOpen} onOk={() => tplForm.submit()} onCancel={() => setTplOpen(false)} width={560}>
+      <Modal title={tplEditId ? '编辑规则模板' : '新建规则模板'} open={tplOpen}
+        onOk={() => tplForm.submit()} onCancel={() => { setTplOpen(false); setTplEditId(null) }}
+        footer={(_, { OkBtn }) => (
+          <Space>
+            {tplEditId && (
+              <Popconfirm title="确认删除此模板?" onConfirm={async () => {
+                await apiClient.delete(`/cleaning/templates/${tplEditId}`); message.success('模板已删除')
+                setTplOpen(false); setTplEditId(null); fetchAll()
+              }}>
+                <Button danger>删除模板</Button>
+              </Popconfirm>
+            )}
+            <Button onClick={() => { setTplOpen(false); setTplEditId(null) }}>取消</Button>
+            <OkBtn />
+          </Space>
+        )} width={560}>
         <Form form={tplForm} layout="vertical" onFinish={async (v) => {
-          await apiClient.post('/cleaning/templates', v); message.success('模板已创建'); setTplOpen(false); fetchAll()
+          const data = { ...v, stages: JSON.parse(v.stages || '[]') }
+          if (tplEditId) {
+            await apiClient.put(`/cleaning/templates/${tplEditId}`, data); message.success('模板已更新')
+          } else {
+            await apiClient.post('/cleaning/templates', data); message.success('模板已创建')
+          }
+          setTplOpen(false); setTplEditId(null); fetchAll()
         }}>
           <Form.Item name="name" label="标识" rules={[{ required: true }]}><Input placeholder="mes_standard_clean" /></Form.Item>
           <Form.Item name="display_name" label="名称" rules={[{ required: true }]}><Input placeholder="MES标准清洗" /></Form.Item>

@@ -395,6 +395,17 @@ async def create_template(req: TemplateCreate, db: AsyncSession = Depends(get_db
     db.add(t); await db.flush(); await db.refresh(t); await db.commit()
     return {"id": t.id, "name": t.name, "display_name": t.display_name}
 
+@router.put("/templates/{tid}")
+async def update_template(tid: int, req: TemplateCreate,
+    db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    t = await db.get(CleaningTemplate, tid)
+    if not t: raise HTTPException(404, "模板不存在")
+    t.name = req.name; t.display_name = req.display_name
+    t.description = req.description; t.stages = req.stages
+    if req.exclude_columns is not None: t.exclude_columns = req.exclude_columns
+    await db.commit()
+    return {"message": "模板已更新"}
+
 @router.delete("/templates/{tid}")
 async def delete_template(tid: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     t = await db.get(CleaningTemplate, tid)
