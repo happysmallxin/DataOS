@@ -374,6 +374,73 @@ async def run_pipeline(
     return result
 
 
+# ---- 清洗规则模板 ----
+
+from app.models.cleaning_template import CleaningTemplate
+from pydantic import BaseModel as PydanticBaseModel
+
+class TemplateCreate(PydanticBaseModel):
+    name: str; display_name: str; description: str = ""
+    stages: list[dict] = []; exclude_columns: list[str] | None = None
+
+@router.get("/templates")
+async def list_templates(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    result = await db.execute(select(CleaningTemplate).order_by(CleaningTemplate.name))
+    return result.scalars().all()
+
+@router.post("/templates", status_code=201)
+async def create_template(req: TemplateCreate, db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    t = CleaningTemplate(**req.model_dump(), created_by=current_user.id)
+    db.add(t); await db.flush(); await db.refresh(t); await db.commit()
+    return {"id": t.id, "name": t.name, "display_name": t.display_name}
+
+@router.delete("/templates/{tid}")
+async def delete_template(tid: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    t = await db.get(CleaningTemplate, tid)
+    if not t: raise HTTPException(404, "模板不存在")
+    await db.delete(t); await db.commit()
+    return {"message": "模板已删除"}
+
+# ---- 批量创建 Pipeline (选表 + 模板) ----
+
+@router.post("/batch-create-pipelines")
+async def batch_create_pipelines(
+    datasource_id: int = Query(...),
+    table_names: list[str] = Query(default_factory=list, alias="tables"),
+    template_id: int | None = Query(None),
+    target_prefix: str = Query(default="clean_"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """选多张表 + 一个规则模板 → 批量生成 Pipeline."""
+    from app.models.datasource import DataSource as DS
+    ds = await db.get(DS, datasource_id)
+    if not ds: raise HTTPException(404, "数据源不存在")
+
+    stages = []
+    if template_id:
+        t = await db.get(CleaningTemplate, template_id)
+        if t: stages = t.stages
+    if not stages:
+        stages = [{"type": "standardize", "config": {"column": "id", "operation": "trim"}}]
+
+    created = []
+    for table_name in table_names:
+        pl = PipelineModel(
+            project_id=ds.project_id or 0, datasource_id=datasource_id,
+            name=f"{target_prefix}{table_name}",
+            source_table=table_name, target_table=f"{target_prefix}{table_name}",
+            stages=stages, created_by=current_user.id,
+        )
+        db.add(pl)
+        await db.flush()
+        created.append({"id": pl.id, "name": pl.name, "table": table_name})
+
+    await db.commit()
+    return {"created": len(created), "pipelines": created}
+
+
 @router.get("/stages")
 async def list_stages(
     _: User = Depends(get_current_user),

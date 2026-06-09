@@ -30,6 +30,7 @@ import app.models.crawler           # noqa: F401 — P2: 爬虫任务映射
 import app.models.sync_history      # noqa: F401 — 数据同步历史
 import app.models.data_domain       # noqa: F401 — 数据域+业务过程
 import app.models.data_standard     # noqa: F401 — 数据标准+字段映射+编码字典
+import app.models.cleaning_template # noqa: F401 — 清洗规则模板
 
 
 # ============================================================
