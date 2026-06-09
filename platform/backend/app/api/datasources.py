@@ -358,13 +358,16 @@ async def list_synced_tables(
     """获取已同步到 MinIO 的表列表 (清洗模块用)."""
     ds = await db.get(DataSource, ds_id)
     if not ds: raise HTTPException(404, "数据源不存在")
-    from app.core.minio_client import list_objects, get_bronze_path
+    from app.core.minio_client import list_objects
     from app.core.config import settings
 
     tables = []
     try:
-        prefix = get_bronze_path(ds.project_id or 0, ds_id, "")
-        objects = list_objects(settings.MINIO_BUCKET_BRONZE, prefix)
+        # 扫描所有 project 下的数据源文件
+        objects = list_objects(settings.MINIO_BUCKET_BRONZE, f"projects/")
+        # 过滤出该数据源的文件，适配 project_id 为 NULL 或任意值
+        objects = [o for o in objects if f"/datasources/{ds_id}/" in o["key"]]
+        objects = list(objects)  # Ensure it's a list
         seen = set()
         for obj in objects:
             parts = obj["key"].split("/")
