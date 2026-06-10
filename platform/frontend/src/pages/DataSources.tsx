@@ -143,7 +143,8 @@ export default function DataSources() {
     setTablesLoading(true)
     try {
       const res = await apiClient.post(`/datasources/${dsId}/tables`)
-      setTables(res.data)
+      setTables(res.data.tables || res.data || [])
+	    if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
     } catch { message.error('获取表列表失败') }
     finally { setTablesLoading(false) }
   }

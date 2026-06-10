@@ -393,10 +393,11 @@ async def list_synced_tables(
 @router.post("/{ds_id}/tables")
 async def list_source_tables(
     ds_id: int,
+    limit: int = Query(default=100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取数据源的表列表 + 字段信息."""
+    """获取数据源的表列表 + 字段信息 (默认100张, 最大500张)."""
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
@@ -405,12 +406,14 @@ async def list_source_tables(
         url = _build_sqlalchemy_url(ds)
         engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
         inspector = inspect(engine)
+        all_tables = inspector.get_table_names()
+        total = len(all_tables)
         tables = []
-        for table_name in inspector.get_table_names():
+        for table_name in all_tables[:limit]:
             cols = [{"name": c["name"], "type": str(c["type"])} for c in inspector.get_columns(table_name)]
             tables.append({"name": table_name, "columns": cols})
         engine.dispose()
-        return tables
+        return {"tables": tables, "total": total, "returned": len(tables), "truncated": total > limit}
     except HTTPException:
         raise
     except Exception as e:
