@@ -3,7 +3,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Typography, Select, message, Popconfirm, Form, Modal, Input, Steps, Row, Col, Statistic, Descriptions } from 'antd'
-import { PlusOutlined, ReloadOutlined, DeleteOutlined, PlayCircleOutlined, EyeOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, DeleteOutlined, PlayCircleOutlined, EyeOutlined, CheckCircleOutlined, DownloadOutlined } from '@ant-design/icons'
 import apiClient from '../utils/api'
 
 const { Title, Text } = Typography
@@ -135,6 +135,12 @@ export default function DatasetGeneration() {
             { title: '格式', dataIndex: 'export_format', width: 70 },
             { title: '操作', width: 260, render: (_: any, r: DatasetItem) => (
               <Space size="small">
+                {r.storage_path && (
+                  <Button size="small" icon={<DownloadOutlined />}
+                    onClick={() => window.open(`http://localhost:8001/api/v1/datasets/${r.id}/export?format=csv`, '_blank')}>
+                    CSV
+                  </Button>
+                )}
                 <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id)}>预览</Button>
                 <Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(r.id)}>生成</Button>
                 <Button size="small" onClick={() => handleVersions(r.id)}>版本</Button>

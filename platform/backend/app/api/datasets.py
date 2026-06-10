@@ -2,10 +2,12 @@
 
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+import io
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
@@ -189,6 +191,51 @@ async def reject_dataset(ds_id: int, reason: str = Query(default=""),
     ds.status = "rejected"
     await db.commit()
     return {"message": "数据集已驳回", "reason": reason}
+
+# ---- 导出 ----
+
+@router.get("/{ds_id}/export")
+async def export_dataset(ds_id: int, format: str = Query(default="parquet"),
+    db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    """导出数据集文件."""
+    ds = await db.get(Dataset, ds_id)
+    if not ds: raise HTTPException(404, "数据集不存在")
+    if not ds.storage_path: raise HTTPException(400, "数据集尚未生成")
+
+    from app.core.minio_client import read_dataframe
+    from app.core.config import settings
+
+    # 从 MinIO 读取
+    key = ds.storage_path.replace(f"{settings.MINIO_BUCKET_SILVER}/", "")
+    try:
+        df = read_dataframe(settings.MINIO_BUCKET_SILVER, key)
+    except Exception:
+        raise HTTPException(404, "数据集文件不存在或已过期")
+
+    if format == "csv":
+        buf = io.BytesIO()
+        df.to_csv(buf, index=False)
+        buf.seek(0)
+        filename = f"{ds.name}_v{ds.version}.csv"
+        return StreamingResponse(buf, media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+    elif format == "json":
+        buf = io.BytesIO()
+        df.to_json(buf, orient="records", force_ascii=False, indent=2)
+        buf.seek(0)
+        filename = f"{ds.name}_v{ds.version}.json"
+        return StreamingResponse(buf, media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+    else:  # parquet
+        buf = io.BytesIO()
+        df.to_parquet(buf, index=False, engine="pyarrow")
+        buf.seek(0)
+        filename = f"{ds.name}_v{ds.version}.parquet"
+        return StreamingResponse(buf, media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"})
+
 
 # ---- 版本 ----
 
