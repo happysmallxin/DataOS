@@ -233,10 +233,10 @@ export default function DataModeling() {
                   style={{ width: '100%' }}
                   options={['VARCHAR','INTEGER','BIGINT','DECIMAL','TIMESTAMP','DATE','TEXT','BOOLEAN'].map(v=>({value:v,label:v}))} />
               </Col>
-              <Col flex="60px">
-                <Select size="small" value={f.source_field || undefined} onChange={v => updateTempField(f.key, 'source_field', v || '')}
-                  style={{ width: '100%' }} placeholder="来源"
-                  options={[{value:'',label:'—'},...['id','username','email','display_name','is_active','created_at','updated_at'].map(v=>({value:v,label:v}))]} />
+              <Col flex="80px">
+                <Input size="small" placeholder="来源字段" value={f.source_field}
+                  onChange={e => updateTempField(f.key, 'source_field', e.target.value)}
+                  style={{ fontSize: 11 }} />
               </Col>
               <Col flex="40px">
                 <Checkbox checked={f.is_primary_key} onChange={e => updateTempField(f.key, 'is_primary_key', e.target.checked)} />
@@ -286,7 +286,7 @@ export default function DataModeling() {
           </Row>
           <Row gutter={16}>
             <Col span={12}><Form.Item name="data_type" label="类型" initialValue="VARCHAR"><Input placeholder="VARCHAR(50)" /></Form.Item></Col>
-            <Col span={12}><Form.Item name="source_field" label="来源字段"><Input placeholder="code" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="source_field" label="来源字段"><Input placeholder="表.字段 如 users.id" /></Form.Item></Col>
           </Row>
           <Space>
             <Form.Item name="is_primary_key" valuePropName="checked"><Checkbox>主键</Checkbox></Form.Item>
