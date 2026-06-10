@@ -146,15 +146,36 @@ export default function DataSources() {
     setTablesLoading(true)
     setTables([]); setTableSearch('')
     try {
-      const res = await apiClient.post(`/datasources/${dsId}/tables`)
-      const list = res.data.tables || res.data || []
-      setAllTables(list); setTables(list); setTablesLoading(false)
-      if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
-      try {
-        const synced = await apiClient.post(`/datasources/${dsId}/tables/synced`)
-        setSyncedNames(new Set((synced.data || []).map((t: any) => t.name)))
-      } catch { /* ignore */ }
+      const res = await apiClient.post(`/datasources/${dsId}/tables?async=true`, {})
+      const jobId = res.data.job_id
+      if (!jobId) {
+        const list = res.data.tables || res.data || []
+        setAllTables(list); setTables(list); setTablesLoading(false)
+        return
+      }
+      // 轮询任务状态
+      const pollJob = async () => {
+        try {
+          const j = await apiClient.get(`/jobs/${jobId}`)
+          if (j.data.status === 'completed') {
+            const list = (j.data.result || {}).tables || []
+            setAllTables(list); setTables(list); setTablesLoading(false)
+            message.success(`已加载 ${list.length} 张表`)
+          } else if (j.data.status === 'failed') {
+            setTablesLoading(false)
+            message.error('表扫描失败: ' + (j.data.error || ''))
+          } else {
+            setTimeout(pollJob, 2000)
+          }
+        } catch { setTablesLoading(false); message.error('表扫描失败') }
+      }
+      setTimeout(pollJob, 1000)
     } catch { message.error('获取表列表失败'); setTablesLoading(false) }
+    // 同时获取已同步的表名
+    try {
+      const synced = await apiClient.post(`/datasources/${dsId}/tables/synced`)
+      setSyncedNames(new Set((synced.data || []).map((t: any) => t.name)))
+    } catch { /* ignore */ }
   }
 
   const handleSync = async () => {
