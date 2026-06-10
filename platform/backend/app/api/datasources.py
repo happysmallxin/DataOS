@@ -393,7 +393,7 @@ async def list_synced_tables(
 @router.post("/{ds_id}/tables")
 async def list_source_tables(
     ds_id: int,
-    limit: int = Query(default=0, ge=0, le=5000),
+    limit: int = Query(default=200, ge=1, le=1000),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     async_mode: bool = Query(default=False, alias="async"),
