@@ -50,7 +50,7 @@ async def list_datasources(
                 safe_config[key] = "***"
         responses.append(DataSourceResponse(
             id=ds.id,
-            project_id=ds.project_id,
+            project_id=ds.project_id or 0,
             name=ds.name,
             source_type=ds.source_type,
             config=safe_config,
@@ -129,7 +129,7 @@ async def create_datasource(
 
     return DataSourceResponse(
         id=ds.id,
-        project_id=ds.project_id,
+        project_id=ds.project_id or 0,
         name=ds.name,
         source_type=ds.source_type,
         config=safe_config,
@@ -201,7 +201,7 @@ async def upload_sqlfile(
     safe_config = {k: ("***" if k in ("password", "secret", "token") else (v[:50] + "..." if k == "sql_content" and len(str(v)) > 50 else v))
                    for k, v in ds.config.items()}
     return DataSourceResponse(
-        id=ds.id, project_id=ds.project_id, name=ds.name, source_type=ds.source_type,
+        id=ds.id, project_id=ds.project_id or 0, name=ds.name, source_type=ds.source_type,
         config=safe_config, status=ds.status, last_sync_at=ds.last_sync_at, created_at=ds.created_at,
     )
 
@@ -246,7 +246,7 @@ async def delete_datasource(
 
     db.add(AuditLog(
         user_id=current_user.id,
-        project_id=ds.project_id,
+        project_id=ds.project_id or 0,
         resource="datasource",
         action="delete",
         target_id=ds_id,
@@ -500,7 +500,7 @@ async def sync_datasource(
     # 记录同步开始
     sync_record = SyncHistory(
         datasource_id=ds_id,
-        project_id=ds.project_id,
+        project_id=ds.project_id or 0,
         table_name=req.table_name,
         sync_mode=req.sync_mode,
         status="running",
@@ -591,7 +591,7 @@ async def sync_datasource(
         # 审计日志
         db.add(AuditLog(
             user_id=current_user.id,
-            project_id=ds.project_id,
+            project_id=ds.project_id or 0,
             resource="datasource",
             action="sync",
             target_id=ds_id,
@@ -668,7 +668,7 @@ async def sync_all_tables(
     results = []
     for table_name in table_names:
         sync_record = SyncHistory(
-            datasource_id=ds_id, project_id=ds.project_id,
+            datasource_id=ds_id, project_id=ds.project_id or 0,
             table_name=table_name, sync_mode="full",
             status="running", triggered_by=current_user.id,
         )

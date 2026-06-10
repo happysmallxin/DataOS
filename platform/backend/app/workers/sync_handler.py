@@ -53,7 +53,7 @@ def handle_sync_job(redis_client, job_id: str, **params) -> dict:
                 pass
 
             sync_record = SyncHistory(
-                datasource_id=ds_id, project_id=ds.project_id,
+                datasource_id=ds_id, project_id=ds.project_id or 0,
                 table_name=table_name, sync_mode=sync_mode,
                 status="running", triggered_by=user_id,
             )
