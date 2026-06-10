@@ -49,6 +49,7 @@ export default function DataSources() {
   const [syncColumn, setSyncColumn] = useState('updated_at')
   const [tableSearch, setTableSearch] = useState('')
   const [allTables, setAllTables] = useState<TableInfo[]>([])
+  const [syncedNames, setSyncedNames] = useState<Set<string>>(new Set())
 
   // 预览
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -146,9 +147,13 @@ export default function DataSources() {
     try {
       const res = await apiClient.post(`/datasources/${dsId}/tables`)
       const list = res.data.tables || res.data || []
-      setAllTables(list); setTables(list)
-      setTableSearch('')
+      setAllTables(list); setTables(list); setTableSearch('')
       if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
+      // 获取已同步的表名
+      try {
+        const synced = await apiClient.post(`/datasources/${dsId}/tables/synced`)
+        setSyncedNames(new Set((synced.data || []).map((t: any) => t.name)))
+      } catch { /* ignore */ }
     } catch { message.error('获取表列表失败') }
     finally { setTablesLoading(false) }
   }
@@ -390,6 +395,7 @@ export default function DataSources() {
                       }}>
                       <Text strong>{name}</Text>
                       <Text type="secondary" style={{ fontSize: 11 }}> ({record.columns?.length || '?'} 列)</Text>
+                      {syncedNames.has(name) && <Tag color="green" style={{ marginLeft: 4, fontSize: 10 }}>已同步</Tag>}
                     </Checkbox>
                   ),
                 },
