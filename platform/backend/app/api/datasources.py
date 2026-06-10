@@ -613,13 +613,25 @@ async def sync_all_tables(
     req: SyncAllRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    async_mode: bool = Query(default=True, alias="async"),
 ):
-    """批量同步数据源的多张表到 MinIO Bronze 层, 一次请求同步多张表, 返回每张表的同步结果."""
+    """批量同步数据源的多张表到 MinIO Bronze 层.
+
+    默认异步(?async=true): 立即返回 job_id, 后台执行, 轮询 GET /jobs/{job_id}
+    同步(?async=false): 直接执行 (少量表时可用)
+    """
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
     from app.api.deps import get_user_permissions
+
+    # 异步模式 -> 提交后台任务
+    if async_mode:
+        from app.core.job_queue import enqueue_job
+        job_id = await enqueue_job("sync", ds_id=ds_id, table_names=req.table_names,
+            sync_mode=req.sync_mode, sync_column=req.sync_column, user_id=current_user.id)
+        return {"job_id": job_id, "status": "pending", "table_count": len(req.table_names), "message": "同步任务已提交, 后台执行中"}
     perms = await get_user_permissions(current_user.id, db, ds.project_id)
     if "datasource:sync" not in perms:
         raise HTTPException(status_code=403, detail="需要权限: datasource:sync")

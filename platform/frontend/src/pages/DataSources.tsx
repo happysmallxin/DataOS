@@ -153,17 +153,38 @@ export default function DataSources() {
     setSyncing(syncDsId)
     setSyncResults(null)
     try {
-      const res = await apiClient.post(`/datasources/${syncDsId}/sync-all`, {
+      const res = await apiClient.post(`/datasources/${syncDsId}/sync-all?async=true`, {
         table_names: Array.from(syncTables),
         sync_mode: syncMode === 'incremental' ? 'incremental' : 'full',
         sync_column: syncColumn,
       })
-      const ok = res.data.tables.filter((t: any) => t.status === 'success').length
-      const fail = res.data.tables.filter((t: any) => t.status === 'failed').length
-      message.success(`同步完成: ${ok} 成功${fail > 0 ? `, ${fail} 失败` : ''}`)
-      setSyncResults(res.data.tables)
-      setSyncTables(new Set())
-      fetchData()
+      if (res.data.job_id) {
+        message.info(`同步任务已提交 (${res.data.table_count} 张表), 后台执行中...`)
+        // 轮询任务状态
+        let attempts = 0
+        const poll = setInterval(async () => {
+          try {
+            const j = await apiClient.get(`/jobs/${res.data.job_id}`)
+            if (j.data.status === 'completed') {
+              clearInterval(poll)
+              const r = j.data.result || {}
+              message.success(`同步完成: ${r.tables_done || '?'} 张表`)
+              setSyncTables(new Set()); fetchData()
+            } else if (j.data.status === 'failed') {
+              clearInterval(poll)
+              message.error(`同步失败: ${j.data.error || '未知错误'}`)
+            } else if (++attempts > 120) {
+              clearInterval(poll)
+              message.warning('同步超时, 请稍后刷新查看')
+            }
+          } catch { clearInterval(poll) }
+        }, 2000)
+      } else {
+        const ok = res.data.tables?.filter((t: any) => t.status === 'success').length || 0
+        const fail = res.data.tables?.filter((t: any) => t.status === 'failed').length || 0
+        message.success(`同步完成: ${ok} 成功${fail > 0 ? `, ${fail} 失败` : ''}`)
+        setSyncResults(res.data.tables); setSyncTables(new Set()); fetchData()
+      }
     } catch (err: any) {
       message.error(err.response?.data?.detail || '同步失败')
     } finally { setSyncing(null) }
