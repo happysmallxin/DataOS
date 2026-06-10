@@ -47,6 +47,8 @@ export default function DataSources() {
   const [syncResults, setSyncResults] = useState<any>(null)
   const [syncMode, setSyncMode] = useState<'full' | 'incremental'>('full')
   const [syncColumn, setSyncColumn] = useState('updated_at')
+  const [tableSearch, setTableSearch] = useState('')
+  const [allTables, setAllTables] = useState<TableInfo[]>([])
 
   // 预览
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -143,8 +145,10 @@ export default function DataSources() {
     setTablesLoading(true)
     try {
       const res = await apiClient.post(`/datasources/${dsId}/tables`)
-      setTables(res.data.tables || res.data || [])
-	    if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
+      const list = res.data.tables || res.data || []
+      setAllTables(list); setTables(list)
+      setTableSearch('')
+      if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
     } catch { message.error('获取表列表失败') }
     finally { setTablesLoading(false) }
   }
@@ -360,26 +364,43 @@ export default function DataSources() {
                   onChange={(e) => setSyncColumn(e.target.value)} style={{ width: 120 }} />
               )}
             </div>
-            {tables.map(t => (
-              <div key={t.name} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '6px 12px', margin: '2px 0', background: '#fafafa', borderRadius: 6,
-              }}>
-                <Checkbox checked={syncTables.has(t.name)}
-                  onChange={(e) => {
-                    const next = new Set(syncTables)
-                    e.target.checked ? next.add(t.name) : next.delete(t.name)
-                    setSyncTables(next)
-                  }}>
-                  <Text strong>{t.name}</Text>
-                  <Text type="secondary"> ({t.columns.length} 列)</Text>
-                </Checkbox>
-                <Button size="small" icon={<EyeOutlined />}
-                  onClick={(e) => { e.stopPropagation(); handlePreview(syncDsId!, t.name) }}>
-                  预览
-                </Button>
-              </div>
-            ))}
+            <Input size="small" placeholder="搜索表名" allowClear
+              style={{ marginBottom: 8, width: 200 }}
+              value={tableSearch}
+              onChange={e => {
+                setTableSearch(e.target.value)
+                const v = e.target.value.toLowerCase()
+                setTables(v ? (allTables.length > 0 ? allTables : tables).filter(t => t.name.toLowerCase().includes(v)) : (allTables.length > 0 ? allTables : tables))
+              }} />
+            <Table
+              dataSource={tables}
+              rowKey="name"
+              size="small"
+              pagination={{ pageSize: 15, showTotal: (t: number) => `共 ${t} 张表` }}
+              scroll={{ y: 350 }}
+              columns={[
+                {
+                  title: '表名', dataIndex: 'name', width: '60%',
+                  render: (name: string, record: TableInfo) => (
+                    <Checkbox checked={syncTables.has(name)}
+                      onChange={(e) => {
+                        const next = new Set(syncTables)
+                        e.target.checked ? next.add(name) : next.delete(name)
+                        setSyncTables(next)
+                      }}>
+                      <Text strong>{name}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}> ({record.columns?.length || '?'} 列)</Text>
+                    </Checkbox>
+                  ),
+                },
+                {
+                  title: '操作', width: '30%',
+                  render: (_: any, record: TableInfo) => (
+                    <Button size="small" icon={<EyeOutlined />}
+                      onClick={() => handlePreview(syncDsId!, record.name)}>预览</Button>
+                  ),
+                },
+              ]} />
             {tables.length === 0 && <Text type="secondary">无可用表</Text>}
 
             {/* 同步结果 */}
