@@ -178,6 +178,7 @@ export default function DataSources() {
         setSyncedNames(new Set((synced.data || []).map((t: any) => t.name)))
       } catch { /* ignore */ }
     } catch { message.error('获取表列表失败'); setTablesLoading(false) }
+  }
 
   const handleSync = async () => {
     if (!syncDsId || syncTables.size === 0) return
@@ -477,5 +478,5 @@ export default function DataSources() {
       </Drawer>
     </div>
   )
-}}
+}
 
