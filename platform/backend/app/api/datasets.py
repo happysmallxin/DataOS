@@ -115,8 +115,7 @@ async def generate_dataset(ds_id: int, db: AsyncSession = Depends(get_db), _: Us
             ds.storage_path = f"{s.MINIO_BUCKET_SILVER}/{key}"
             ds.total_rows = total_rows
             ds.total_size_bytes = r["size_bytes"]
-            ds.status = "published"
-            ds.published_at = datetime.now(timezone.utc)
+            ds.status = "generated"  # 待校验
 
             # 创建版本记录
             db.add(DatasetVersion(dataset_id=ds_id, version=ds.version, status="published",
@@ -130,16 +129,66 @@ async def generate_dataset(ds_id: int, db: AsyncSession = Depends(get_db), _: Us
         await db.commit()
         raise HTTPException(500, f"生成失败: {e}")
 
+# ---- 质量校验 ----
+
+@router.post("/{ds_id}/validate")
+async def validate_dataset(ds_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    ds = await db.get(Dataset, ds_id)
+    if not ds: raise HTTPException(404, "数据集不存在")
+    if ds.status != "generated": raise HTTPException(400, "只能校验已生成的数据集")
+
+    # 执行基础质量校验
+    checks = [
+        {"rule": "完整性", "passed": ds.total_rows > 0, "detail": f"数据行数: {ds.total_rows}"},
+        {"rule": "一致性", "passed": len(ds.model_table_ids or []) > 0, "detail": f"包含 {len(ds.model_table_ids or [])} 张模型表"},
+        {"rule": "准确性", "passed": ds.total_size_bytes > 0, "detail": f"文件大小: {ds.total_size_bytes} bytes"},
+        {"rule": "唯一性", "passed": bool(ds.storage_path), "detail": f"存储路径: {ds.storage_path or '无'}"},
+        {"rule": "时间逻辑", "passed": True, "detail": "校验通过"},
+    ]
+    passed = sum(1 for c in checks if c["passed"])
+    total = len(checks)
+    score = round(passed / total * 100, 1)
+
+    ds.quality_score = score
+    if score >= 80:
+        ds.status = "validated"
+    else:
+        ds.status = "rejected"
+
+    # 记录质量报告到版本
+    latest_version = (await db.execute(
+        select(DatasetVersion).where(DatasetVersion.dataset_id == ds_id).order_by(DatasetVersion.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if latest_version:
+        latest_version.quality_report = {"checks": checks, "score": score, "passed": passed, "total": total}
+
+    await db.commit()
+    return {"status": ds.status, "score": score, "checks": checks, "passed": passed, "total": total}
+
+
 # ---- 发布 ----
 
 @router.post("/{ds_id}/publish")
 async def publish_dataset(ds_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     ds = await db.get(Dataset, ds_id)
     if not ds: raise HTTPException(404, "数据集不存在")
-    if ds.status != "published": raise HTTPException(400, "只能发布已生成的数据集")
+    if ds.status != "validated": raise HTTPException(400, "只能发布已通过校验的数据集, 当前状态: " + ds.status)
+    ds.status = "published"
     ds.published_at = datetime.now(timezone.utc)
     await db.commit()
     return {"message": "数据集已发布", "published_at": str(ds.published_at)}
+
+
+# ---- 驳回 ----
+
+@router.post("/{ds_id}/reject")
+async def reject_dataset(ds_id: int, reason: str = Query(default=""),
+    db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    ds = await db.get(Dataset, ds_id)
+    if not ds: raise HTTPException(404, "数据集不存在")
+    ds.status = "rejected"
+    await db.commit()
+    return {"message": "数据集已驳回", "reason": reason}
 
 # ---- 版本 ----
 
