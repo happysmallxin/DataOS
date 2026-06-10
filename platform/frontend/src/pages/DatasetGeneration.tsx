@@ -137,9 +137,7 @@ export default function DatasetGeneration() {
               <Space size="small">
                 {r.storage_path && (
                   <Button size="small" icon={<DownloadOutlined />}
-                    onClick={() => window.open(`http://localhost:8001/api/v1/datasets/${r.id}/export?format=csv`, '_blank')}>
-                    CSV
-                  </Button>
+                    onClick={() => window.open(`http://localhost:8001/api/v1/datasets/${r.id}/export?format=csv`, '_blank')} />
                 )}
                 <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id)}>预览</Button>
                 <Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(r.id)}>生成</Button>
