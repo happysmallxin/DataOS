@@ -144,19 +144,40 @@ export default function DataSources() {
     setSyncDsId(dsId)
     setSyncModalOpen(true)
     setTablesLoading(true)
+    setTables([])
     try {
-      const res = await apiClient.post(`/datasources/${dsId}/tables`)
-      const list = res.data.tables || res.data || []
-      setAllTables(list); setTables(list); setTableSearch('')
-      if (res.data.truncated) message.info('已加载前' + res.data.returned + '张表, 共' + res.data.total + '张')
+      // 异步扫描表 (大量表时不阻塞)
+      const res = await apiClient.post(`/datasources/${dsId}/tables?async=true`, {})
+      if (res.data.job_id) {
+        message.info('正在扫描表结构...')
+        // 轮询直到完成
+        let attempts = 0
+        const poll = setInterval(async () => {
+          try {
+            const j = await apiClient.get(`/jobs/${res.data.job_id}`)
+            if (j.data.status === 'completed') {
+              clearInterval(poll)
+              const result = j.data.result || {}
+              const list = result.tables || []
+              setAllTables(list); setTables(list)
+              setTablesLoading(false)
+              message.success(`已加载 ${list.length} 张表`)
+            } else if (j.data.status === 'failed' || ++attempts > 60) {
+              clearInterval(poll); setTablesLoading(false)
+              message.error('表扫描失败')
+            }
+          } catch { clearInterval(poll); setTablesLoading(false) }
+        }, 2000)
+      } else {
+        const list = res.data.tables || res.data || []
+        setAllTables(list); setTables(list); setTablesLoading(false)
+      }
       // 获取已同步的表名
       try {
         const synced = await apiClient.post(`/datasources/${dsId}/tables/synced`)
         setSyncedNames(new Set((synced.data || []).map((t: any) => t.name)))
       } catch { /* ignore */ }
-    } catch { message.error('获取表列表失败') }
-    finally { setTablesLoading(false) }
-  }
+    } catch { message.error('获取表列表失败'); setTablesLoading(false) }
 
   const handleSync = async () => {
     if (!syncDsId || syncTables.size === 0) return

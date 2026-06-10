@@ -393,27 +393,41 @@ async def list_synced_tables(
 @router.post("/{ds_id}/tables")
 async def list_source_tables(
     ds_id: int,
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=0, ge=0, le=5000),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    async_mode: bool = Query(default=False, alias="async"),
 ):
-    """获取数据源的表列表 + 字段信息 (默认100张, 最大500张)."""
+    """获取数据源的表列表 + 字段信息.
+
+    limit=0 表示全部加载 (默认, 少量表直接返回)
+    limit>0 表示限制数量
+    ?async=true: 异步模式, 立即返回 job_id, 后台扫描, 轮询 GET /jobs/{id}
+    """
     ds = await db.get(DataSource, ds_id)
     if not ds:
         raise HTTPException(status_code=404, detail="数据源不存在")
 
+    # 异步模式
+    if async_mode:
+        from app.core.job_queue import enqueue_job
+        job_id = await enqueue_job("scan_tables", ds_id=ds_id, limit=limit, user_id=current_user.id)
+        return {"job_id": job_id, "status": "pending", "message": "表扫描任务已提交, 后台执行中"}
+
+    # 同步模式
     try:
         url = _build_sqlalchemy_url(ds)
-        engine = create_engine(url, connect_args={"connect_timeout": 10} if "sqlite" not in url else {})
+        engine = create_engine(url, connect_args={"connect_timeout": 30} if "sqlite" not in url else {})
         inspector = inspect(engine)
         all_tables = inspector.get_table_names()
         total = len(all_tables)
+        take = limit if limit > 0 else total
         tables = []
-        for table_name in all_tables[:limit]:
+        for table_name in all_tables[:take]:
             cols = [{"name": c["name"], "type": str(c["type"])} for c in inspector.get_columns(table_name)]
             tables.append({"name": table_name, "columns": cols})
         engine.dispose()
-        return {"tables": tables, "total": total, "returned": len(tables), "truncated": total > limit}
+        return {"tables": tables, "total": total, "returned": len(tables), "truncated": total > len(tables)}
     except HTTPException:
         raise
     except Exception as e:
