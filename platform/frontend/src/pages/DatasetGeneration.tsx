@@ -137,7 +137,15 @@ export default function DatasetGeneration() {
               <Space size="small">
                 {r.storage_path && (
                   <Button size="small" icon={<DownloadOutlined />}
-                    onClick={() => window.open(`http://localhost:8001/api/v1/datasets/${r.id}/export?format=csv`, '_blank')} />
+                    onClick={async () => {
+                      try {
+                        const resp = await apiClient.get(`/datasets/${r.id}/export?format=csv`, { responseType: 'blob' })
+                        const url = window.URL.createObjectURL(new Blob([resp.data]))
+                        const a = document.createElement('a'); a.href = url
+                        a.download = `${r.name}_v${r.version}.csv`; a.click()
+                        window.URL.revokeObjectURL(url)
+                      } catch { message.error('下载失败') }
+                    }} />
                 )}
                 <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(r.id)}>预览</Button>
                 <Button size="small" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(r.id)}>生成</Button>
